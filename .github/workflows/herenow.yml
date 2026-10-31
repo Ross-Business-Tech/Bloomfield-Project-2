@@ -1,0 +1,191 @@
+# here.now publishing.
+#   development branch (each team repo's default) -> the team's dev site: permanent, OUTSIDE the
+#                  workspace, unguessable address. Updated on every merged pull request.
+#   main branch   -> the team's public workspace site https://<repo>.<workspace>.here.now/
+#                  Only staff can push to main; the reveal merges development into main.
+#   Manual run on main with "coming_soon" -> publishes the Coming soon page (team name only).
+#   Manual run on development -> (re)publishes the dev site; the first one creates it.
+#   Pull request  -> optional preview site (off unless variable HERENOW_PR_PREVIEWS=true).
+#
+# Security model for production:
+#   * The key lives only in the "production" environment, which only main may deploy to, and
+#     main is protected (PR + review; CODEOWNERS makes staff review changes under .github/ and
+#     scripts/). A pull request can't read it: GitHub runs PRs with the PR's own copy of this
+#     file, but environment rules still apply.
+#   * Building runs project code and every npm package's install scripts, so "build" has NO
+#     secrets. "production" gets the key but runs no npm and no project code: it downloads the
+#     built files and runs the staff-owned publisher (Node built-ins + curl only).
+#
+# Settings (admin/hackathon/provision.sh sets all of these per repo):
+#   Environment "production":  secret HERENOW_API_KEY (workspace admin key), deploy branch: main
+#   Environment "development": secret HERENOW_API_KEY (same key), deploy branch: development
+#   Variables: HERENOW_WORKSPACE, HERENOW_ACCESS, HERENOW_FOLDER, HERENOW_TEAM_NAME,
+#              HERENOW_PROD_SLUG, HERENOW_DEV_SLUG
+#   Optional:  variable HERENOW_PR_PREVIEWS=true + secret HERENOW_PREVIEW_API_KEY
+#              (use a NON-admin workspace member's key: any team member can read it)
+name: here.now
+
+on:
+  push:
+    branches: [main, development]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      coming_soon:
+        description: "main only: publish the Coming soon page instead of the app"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/development')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: site
+          path: dist/
+          include-hidden-files: true   # keep dist/.herenow/ (Site Data + proxy manifests)
+          if-no-files-found: error
+          retention-days: 1
+
+  production:
+    needs: build
+    # Pushes to main (staff only) publish the app. A manual run on main can only publish the
+    # Coming soon page, so nobody can reveal a team early with "Run workflow".
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.coming_soon))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    concurrency:
+      group: herenow-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          package-manager-cache: false   # no cache restores in the job that holds the key
+      - uses: actions/download-artifact@v8
+        if: ${{ !inputs.coming_soon }}
+        with:
+          name: site
+          path: dist
+      - name: Publish production (no npm, no project code runs in this job)
+        env:
+          HERENOW_API_KEY: ${{ secrets.HERENOW_API_KEY }}
+          HERENOW_SKIP_BUILD: '1'
+          HERENOW_COMING_SOON: ${{ inputs.coming_soon && '1' || '' }}
+          HERENOW_TEAM_NAME: ${{ vars.HERENOW_TEAM_NAME }}
+          HERENOW_PROD_SLUG: ${{ vars.HERENOW_PROD_SLUG }}
+          HERENOW_WORKSPACE: ${{ vars.HERENOW_WORKSPACE }}
+          HERENOW_ACCESS: ${{ vars.HERENOW_ACCESS }}
+          HERENOW_FOLDER: ${{ vars.HERENOW_FOLDER }}
+          HERENOW_APP_NAME: ${{ github.event.repository.name }}
+          HERENOW_LABEL: ${{ github.event.repository.name }}
+        run: node scripts/herenow-publish.mjs production
+
+  development:
+    needs: build
+    if: github.ref == 'refs/heads/development' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: development
+    concurrency:
+      group: herenow-development
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          package-manager-cache: false   # no cache restores in the job that holds the key
+      - uses: actions/download-artifact@v8
+        with:
+          name: site
+          path: dist
+      - name: Publish the dev site (no npm, no project code runs in this job)
+        env:
+          HERENOW_API_KEY: ${{ secrets.HERENOW_API_KEY }}
+          HERENOW_SKIP_BUILD: '1'
+          HERENOW_DEV_SLUG: ${{ vars.HERENOW_DEV_SLUG }}
+          HERENOW_FOLDER: ${{ vars.HERENOW_FOLDER }}
+          HERENOW_APP_NAME: ${{ github.event.repository.name }}
+        run: node scripts/herenow-publish.mjs development
+
+  pr-preview:
+    # Fork PRs get no secrets; skip them. Off unless the repo/org opts in.
+    if: >-
+      github.event_name == 'pull_request' &&
+      vars.HERENOW_PR_PREVIEWS == 'true' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    concurrency:
+      group: herenow-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    env:
+      HERENOW_API_KEY: ${{ secrets.HERENOW_PREVIEW_API_KEY }}
+      HERENOW_WORKSPACE: ${{ vars.HERENOW_WORKSPACE }}
+      HERENOW_ACCESS: ${{ vars.HERENOW_ACCESS }}
+      HERENOW_FOLDER: ${{ vars.HERENOW_FOLDER }}
+      HERENOW_APP_NAME: ${{ github.event.repository.name }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Find this PR's existing preview
+        id: prev
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          slug=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" --paginate \
+            --jq '.[] | select(.body | contains("<!-- herenow-preview -->")) | .body' \
+            | sed -n 's/.*<!-- slug:\([A-Za-z0-9-]*\) -->.*/\1/p' | tail -n 1)
+          echo "slug=${slug}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish PR preview
+        id: pr
+        env:
+          HERENOW_SLUG: ${{ steps.prev.outputs.slug }}
+          HERENOW_PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: node scripts/herenow-publish.mjs pr-preview
+
+      - name: Post preview link on the PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          URL: ${{ steps.pr.outputs.url }}
+          SLUG: ${{ steps.pr.outputs.slug }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          body=$(printf '<!-- herenow-preview -->\n<!-- slug:%s -->\n**Try this version:** %s\n\nBuilt from `%s`. This link updates on every push and expires 7 days after the last one. The live app changes only when this PR is merged.' "$SLUG" "$URL" "${SHA:0:7}")
+          gh pr comment "$PR" --edit-last --body "$body" || gh pr comment "$PR" --body "$body"
