@@ -1,0 +1,62 @@
+# Settings for collectors/edgar.py (SEC EDGAR CMBS loan-level data, Form ABS-EE).
+#
+# UNVERIFIED: the sandbox this was written in could not reach sec.gov, so the
+# tag names below come from the SEC's published CMBS ABS-EE schema as we know it.
+# If a field comes back blank on real data, open one EX-102 XML file and add the
+# real tag name to the list below. No code change needed.
+
+index_url: "https://www.sec.gov/Archives/edgar/full-index/{year}/QTR{quarter}/form.idx"
+filing_index_url: "https://www.sec.gov/Archives/edgar/data/{cik}/{accession_nodash}/index.json"
+file_url: "https://www.sec.gov/Archives/edgar/data/{cik}/{accession_nodash}/{name}"
+
+form_types: ["ABS-EE", "ABS-EE/A"]
+
+# ABS-EE is also used for auto loans, leases, etc. Only filers whose name matches
+# one of these (case-insensitive regex) are treated as CMBS. --cik overrides this.
+cmbs_name_patterns:
+  - "commercial mortgage"
+  - "commercial mtg"
+  - "mortgage trust"
+  - "mortgage securities trust"
+  - "capital i trust"
+  - "\\bcmbs\\b"
+  - "^bank\\d? \\d{4}-"
+  - "^benchmark \\d{4}-"
+  - "^bbcms"
+  - "^cgcmt"
+  - "^comm \\d{4}-"
+  - "^csail"
+  - "^msbam"
+  - "^wfcm"
+
+# EX-102 is the asset-level data file inside each ABS-EE filing.
+asset_file_pattern: "ex[a-z_-]*102[^/]*\\.xml$"   # exh_102.xml, ex-102.xml, ex102.xml
+max_file_mb: 200            # skip anything bigger (protects against non-CMBS giants)
+
+# Repeating element for one loan, and its nested property element (local names, no namespace).
+record_tag: "assets"
+property_tag: "property"
+
+# loans column -> candidate XML tag names (first non-empty wins). Tags are searched
+# in the loan element first, then in its FIRST <property> element.
+fields:
+  loan_number:        ["assetNumber"]
+  reporting_period:   ["reportingPeriodEndDate"]
+  lender_name:        ["originatorName"]
+  servicer_name:      ["primaryServicerName"]
+  original_balance:   ["originalLoanAmount"]
+  current_balance:    ["reportPeriodEndActualBalanceAmount", "reportPeriodEndScheduledLoanBalanceAmount"]
+  interest_rate:      ["reportPeriodInterestRatePercentage", "originalInterestRatePercentage"]
+  origination_date:   ["originationDate"]
+  maturity_date:      ["maturityDate"]
+  delinquency_status: ["paymentStatusLoanCode"]
+  property_name:      ["propertyName"]
+  property_address:   ["propertyAddress"]
+  city:               ["propertyCity"]
+  state:              ["propertyState"]
+  zip:                ["propertyZip"]
+  property_type:      ["propertyTypeCode"]
+  dscr:               ["mostRecentDebtServiceCoverageNetOperatingIncomePercentage", "debtServiceCoverageNetOperatingIncomeSecuritizationPercentage"]
+  occupancy:          ["mostRecentPhysicalOccupancyPercentage", "physicalOccupancySecuritizationPercentage"]
+  special_transfer_date: ["mostRecentSpecialServicerTransferDate"]
+  special_return_date:   ["mostRecentMasterServicerReturnDate"]

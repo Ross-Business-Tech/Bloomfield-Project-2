@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- FAKE FIXTURE: invented loans, modelled on the CMBS ABS-EE asset data layout -->
+<assetData xmlns="http://www.sec.gov/edgar/document/absee/cmbs/assetdata">
+  <assets>
+    <assetTypeNumber>Prospectus Loan ID</assetTypeNumber>
+    <assetNumber>1</assetNumber>
+    <reportingPeriodBeginningDate>09-18-2026</reportingPeriodBeginningDate>
+    <reportingPeriodEndDate>10-16-2026</reportingPeriodEndDate>
+    <originatorName>Example Bank, N.A.</originatorName>
+    <originationDate>06-01-2019</originationDate>
+    <originalLoanAmount>25000000.00</originalLoanAmount>
+    <maturityDate>07-01-2027</maturityDate>
+    <originalInterestRatePercentage>0.04750</originalInterestRatePercentage>
+    <reportPeriodInterestRatePercentage>0.04750</reportPeriodInterestRatePercentage>
+    <reportPeriodEndActualBalanceAmount>24100000.00</reportPeriodEndActualBalanceAmount>
+    <paymentStatusLoanCode>0</paymentStatusLoanCode>
+    <primaryServicerName>Sample Servicing Co</primaryServicerName>
+    <mostRecentSpecialServicerTransferDate>08-01-2026</mostRecentSpecialServicerTransferDate>
+    <property>
+      <propertyName>Maple Plaza</propertyName>
+      <propertyAddress>100 Example Ave</propertyAddress>
+      <propertyCity>Springfield</propertyCity>
+      <propertyState>IL</propertyState>
+      <propertyZip>62701</propertyZip>
+      <propertyTypeCode>RT</propertyTypeCode>
+      <mostRecentPhysicalOccupancyPercentage>0.78</mostRecentPhysicalOccupancyPercentage>
+      <mostRecentDebtServiceCoverageNetOperatingIncomePercentage>0.92</mostRecentDebtServiceCoverageNetOperatingIncomePercentage>
+    </property>
+  </assets>
+  <assets>
+    <assetNumber>2</assetNumber>
+    <reportingPeriodEndDate>10-16-2026</reportingPeriodEndDate>
+    <originatorName>Demo Capital LLC</originatorName>
+    <originalLoanAmount>18000000.00</originalLoanAmount>
+    <maturityDate>03-01-2027</maturityDate>
+    <reportPeriodInterestRatePercentage>0.05100</reportPeriodInterestRatePercentage>
+    <reportPeriodEndActualBalanceAmount>17250000.00</reportPeriodEndActualBalanceAmount>
+    <paymentStatusLoanCode>1</paymentStatusLoanCode>
+    <property>
+      <propertyName>Oak Office Center</propertyName>
+      <propertyCity>Columbus</propertyCity>
+      <propertyState>OH</propertyState>
+      <propertyTypeCode>OF</propertyTypeCode>
+      <mostRecentDebtServiceCoverageNetOperatingIncomePercentage>1.31</mostRecentDebtServiceCoverageNetOperatingIncomePercentage>
+    </property>
+    <property>
+      <propertyName>Second Building Ignored</propertyName>
+      <propertyCity>Dayton</propertyCity>
+    </property>
+  </assets>
+</assetData>

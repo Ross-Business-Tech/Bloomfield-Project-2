@@ -1,0 +1,15 @@
+Description:           Master Index of EDGAR Dissemination Feed by Form Type
+Last Data Received:    October 31, 2026
+Comments:              FAKE FIXTURE FOR TESTS - made-up companies and numbers
+Anonymous FTP:         ftp://ftp.sec.gov/edgar/
+ 
+ 
+ 
+ 
+Form Type   Company Name                                                  CIK         Date Filed  File Name
+---------------------------------------------------------------------------------------------------------------------------------------------
+10-K        Example Widgets Inc                                           1000001     2026-10-05  edgar/data/1000001/0001000001-26-000001.txt
+ABS-EE      Fakeville Auto Receivables Trust 2026-1                       1000002     2026-10-06  edgar/data/1000002/0001000002-26-000002.txt
+ABS-EE      FAKE Commercial Mortgage Trust 2019-C1                        1000003     2026-10-14  edgar/data/1000003/0001000003-26-000003.txt
+ABS-EE      BANK 2099-BNK1                                                1000004     2026-10-15  edgar/data/1000004/0001000004-26-000004.txt
+ABS-EE      FAKE Commercial Mortgage Trust 2018-C9                        1000005     2026-09-15  edgar/data/1000005/0001000005-26-000005.txt
