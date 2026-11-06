@@ -1,0 +1,4 @@
+CMS Certification Number (CCN),Provider Name,Provider Address,City/Town,State,ZIP Code,Legal Business Name,Provider Type,Overall Rating,Special Focus Status,Abuse Icon,Total Amount of Fines in Dollars,Number of Payment Denials,Processing Date
+015001,FAKE MAPLE CARE CENTER,100 EXAMPLE AVE,SPRINGFIELD,IL,62701,FAKE MAPLE OPCO LLC,Medicare and Medicaid,1,SFF,Y,"250,000",2,2026-10-01
+015002,FAKE OAK NURSING HOME,200 SAMPLE ST,COLUMBUS,OH,43215,FAKE OAK OPCO LLC,Medicare and Medicaid,4,,N,0,0,2026-10-01
+015003,FAKE PINE REHAB,300 TEST RD,AUSTIN,TX,78701,FAKE PINE OPCO LLC,Medicare,3,SFF Candidate,N,"12,000",0,2026-10-01

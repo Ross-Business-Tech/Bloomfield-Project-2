@@ -1,0 +1,4 @@
+{"success": true, "result": {"name": "healthcare-facility-locations", "resources": [
+  {"name": "Data Dictionary", "format": "PDF", "url": "https://data.chhs.ca.gov/fake/dictionary.pdf"},
+  {"name": "Healthcare Facility Locations", "format": "CSV", "url": "https://data.chhs.ca.gov/fake/facilities.csv"}
+]}}

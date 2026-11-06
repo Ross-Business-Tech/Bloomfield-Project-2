@@ -1,0 +1,86 @@
+# Sources for collectors/state.py: state licensing distress records + CMS nursing home data.
+# Adding a source = adding an entry here.
+#
+# kind:
+#   cms   - data.cms.gov Provider Data Catalog dataset (looks up the current CSV link)
+#   ckan  - a state open-data portal running CKAN (looks up the CSV in a dataset)
+#   csv   - a direct link to a CSV file
+#   page  - a web page or PDF with no structured download: saved to raw_files only
+#           (needs_reading = 1) for Person 2's AI reader
+#
+# columns: licensing_records column -> candidate header names (case/spacing ignored)
+# distress: rules; a row matching ANY rule gets distress_flag = 1 and the reasons listed
+#   - {column: <header candidates>, in: [values]}       exact match (case-insensitive)
+#   - {column: <...>, matches: "<regex>"}               regex match
+#   - {column: <...>, at_least: <number>}               numeric threshold
+#   reason: text stored in distress_reason ({value} is replaced by the cell value)
+#
+# UNVERIFIED: the sandbox could not reach these sites. URLs, dataset IDs and column
+# names follow the publishers' documented formats; check them on the first real run
+# (the log lists columns it could not find).
+
+sources:
+  - name: cms_nursing_home_provider_info
+    enabled: true
+    kind: cms
+    source: CMS
+    dataset_id: "4pq5-n9py"        # "Provider Information" (nursing homes)
+    metastore_url: "https://data.cms.gov/provider-data/api/1/metastore/schemas/dataset/items/{dataset_id}"
+    columns:
+      license_number: ["CMS Certification Number (CCN)", "Federal Provider Number", "CCN"]
+      facility_name:  ["Provider Name"]
+      legal_name:     ["Legal Business Name"]
+      facility_type:  ["Provider Type"]
+      address:        ["Provider Address"]
+      city:           ["City/Town", "Provider City"]
+      state:          ["State", "Provider State"]
+      zip:            ["ZIP Code", "Provider Zip Code"]
+      status:         ["Special Focus Status"]
+      as_of_date:     ["Processing Date"]
+    distress:
+      - {column: ["Special Focus Status"], in: ["SFF", "SFF Candidate"], reason: "Special Focus: {value}"}
+      - {column: ["Abuse Icon"], in: ["Y", "Yes"], reason: "abuse citation"}
+      - {column: ["Total Amount of Fines in Dollars"], at_least: 100000, reason: "fines ${value}"}
+      - {column: ["Number of Payment Denials"], at_least: 1, reason: "{value} payment denial(s)"}
+      - {column: ["Overall Rating"], in: ["1"], reason: "1-star overall rating"}
+
+  - name: california_health_facilities
+    enabled: true
+    kind: ckan
+    source: "STATE:CA"
+    state: CA
+    api_url: "https://data.chhs.ca.gov/api/3/action/package_show?id={dataset}"
+    dataset: "healthcare-facility-locations"
+    resource_pattern: "(?i)csv"     # first CSV resource whose name/format matches
+    columns:
+      license_number: ["LICENSE_NUMBER", "FACID", "OSHPD_ID"]
+      facility_name:  ["FACNAME", "FACILITY_NAME"]
+      facility_type:  ["FAC_TYPE_CODE", "FAC_FDR", "FACILITY_TYPE"]
+      address:        ["ADDRESS"]
+      city:           ["CITY"]
+      state:          ["STATE"]
+      zip:            ["ZIP", "ZIP_CODE"]
+      status:         ["LICENSE_STATUS_DESCRIPTION", "FACILITY_STATUS_DESC", "STATUS"]
+    distress:
+      - {column: ["LICENSE_STATUS_DESCRIPTION", "FACILITY_STATUS_DESC", "STATUS"],
+         matches: "(?i)suspend|revok|probation|receiver|surrender|closed|delinquent|pending",
+         reason: "license status: {value}"}
+
+  # Template for a state that publishes a plain CSV link:
+  # - name: example_state_enforcement
+  #   enabled: false
+  #   kind: csv
+  #   source: "STATE:XX"
+  #   state: XX
+  #   url: "https://example.gov/enforcement-actions.csv"
+  #   columns: {license_number: ["License #"], facility_name: ["Facility"], status: ["Action"]}
+  #   distress:
+  #     - {column: ["Action"], matches: "(?i)suspen|revoc", reason: "{value}"}
+
+  # Template for a state page with no download (saved for the AI reader):
+  # - name: example_state_notice_page
+  #   enabled: false
+  #   kind: page
+  #   source: "STATE:XX"
+  #   state: XX
+  #   url: "https://example.gov/licensing/disciplinary-actions"
