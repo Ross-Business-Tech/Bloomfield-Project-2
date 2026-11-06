@@ -1,0 +1,35 @@
+# Settings for collectors/ffiec.py (FFIEC Call Report bulk data, quarterly).
+#
+# UNVERIFIED against live files (the sandbox could not reach cdr.ffiec.gov).
+# The codes are MDRM item codes from the Call Report instructions. If a column
+# comes back blank, open a schedule file from the bulk zip and fix the code here.
+# Amounts in call reports are in THOUSANDS of dollars.
+
+# Each item lists alternative codes; the first one present in the data is used.
+# Commercial real estate = construction & land development + multifamily + nonfarm nonresidential.
+nonaccrual_items:            # Schedule RC-N, column C (nonaccrual)
+  construction_1to4:   ["RCONF176"]
+  construction_other:  ["RCONF177"]
+  multifamily:         ["RCON3501"]
+  nonfarm_owner_occ:   ["RCONF182"]
+  nonfarm_other:       ["RCONF183"]
+
+loan_total_items:            # Schedule RC-C Part I, loan balances
+  construction_1to4:   ["RCONF158"]
+  construction_other:  ["RCONF159"]
+  multifamily:         ["RCON1460"]
+  nonfarm_owner_occ:   ["RCONF160"]
+  nonfarm_other:       ["RCONF161"]
+
+id_column: "IDRSSD"
+
+# Panel of Reporters file (bank names). Candidate column headers, first match wins.
+por_file_pattern: "POR"
+por_columns:
+  bank_name: ["Financial Institution Name", "FINANCIAL INSTITUTION NAME"]
+  city:      ["Financial Institution City", "FINANCIAL INSTITUTION CITY"]
+  state:     ["Financial Institution State", "FINANCIAL INSTITUTION STATE"]
+
+# Trend: change in CRE nonaccrual dollars vs the bank's previous loaded quarter.
+# |change| <= flat_tolerance_thousands  -> "flat"
+flat_tolerance_thousands: 0

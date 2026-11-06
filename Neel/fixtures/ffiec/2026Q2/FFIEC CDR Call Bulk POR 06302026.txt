@@ -1,0 +1,4 @@
+Reporting Period End Date	IDRSSD	FDIC Certificate Number	Financial Institution Name	Financial Institution City	Financial Institution State
+"06/30/2026"	111	9001	"FAKE FIRST BANK"	"SPRINGFIELD"	"IL"
+"06/30/2026"	222	9002	"EXAMPLE SAVINGS"	"COLUMBUS"	"OH"
+"06/30/2026"	333	9003	"NO CRE TRUST CO"	"AUSTIN"	"TX"
