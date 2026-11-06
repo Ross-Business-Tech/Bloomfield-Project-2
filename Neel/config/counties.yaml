@@ -1,0 +1,76 @@
+# County court / recorder / sheriff / public-notice sites for collectors/county.py.
+# ADDING A COUNTY = ADDING AN ENTRY HERE. No code changes.
+#
+# Fields
+#   name               short id, used in raw_files.source as COUNTY:<name>
+#   state              2-letter state code
+#   enabled            false = skipped unless named with --only
+#   base_url           site root; page paths below are resolved against it
+#   pages              listing pages or search URLs. Placeholders filled per run:
+#                        {since:%m/%d/%Y}  {until:%Y-%m-%d}  (any strftime format)
+#   fetch              links  - open each page, save every linked filing matching link_pattern
+#                      page   - save the page itself (an HTML list of notices)
+#                      direct - each "page" URL IS a filing (e.g. a monthly PDF): save it
+#   link_pattern       regex on the absolute link URL (fetch: links)
+#   link_text_pattern  optional regex on the link text
+#   next_text_pattern  optional regex on the "next page" link text, for paging
+#   max_pages          pages to follow per start URL (default 5)
+#   max_links          filings to save per run (default 200)
+#   immutable          true = a filing URL never changes, so skip URLs already loaded (default true)
+#   verified           whether someone has confirmed this works with a plain GET
+#   notes              free text
+#
+# NOT VERIFIED YET: the sandbox these were written in could not reach any county
+# site, so URLs/patterns below are best guesses at each office's public notice
+# pages. Run `python -m collectors.county --only <name> -v` on a normal internet
+# connection, then set verified: true or fix the entry (see README).
+# If a site needs a login, CAPTCHA, or robots.txt forbids it, the scraper skips it
+# automatically; record it in the README "Skipped sites" table and set enabled: false.
+
+counties:
+  - name: dallas_tx
+    state: TX
+    enabled: true
+    verified: false
+    base_url: "https://www.dallascounty.org"
+    pages: ["/government/county-clerk/recording/foreclosures.php"]
+    fetch: links
+    link_pattern: "(?i)\\.pdf($|\\?)"
+    notes: "Texas posts non-judicial foreclosure sale notices with the County Clerk before each monthly sale."
+
+  - name: oakland_mi
+    state: MI
+    enabled: true
+    verified: false
+    base_url: "https://www.oakgov.com"
+    pages: ["/government/sheriff/sheriff-sales"]
+    fetch: links
+    link_pattern: "(?i)\\.pdf($|\\?)|sheriff-sale"
+    notes: "Michigan foreclosure by advertisement ends in a Sheriff's sale; Bloomfield's home county."
+
+  - name: cook_il
+    state: IL
+    enabled: true
+    verified: false
+    base_url: "https://www.cookcountyclerkofcourt.org"
+    pages: ["/"]
+    fetch: page
+    notes: "Chancery (foreclosure/receivership) case search may be a form; if so this saves only the landing page and should be disabled."
+
+  - name: maricopa_az
+    state: AZ
+    enabled: true
+    verified: false
+    base_url: "https://recorder.maricopa.gov"
+    pages: ["/"]
+    fetch: page
+    notes: "Arizona trustee sale notices are recorded with the County Recorder; document search may need a form."
+
+  - name: miami_dade_fl
+    state: FL
+    enabled: true
+    verified: false
+    base_url: "https://www.miamidade.realforeclose.com"
+    pages: ["/index.cfm?zaction=USER&zmethod=CALENDAR"]
+    fetch: page
+    notes: "Clerk's online foreclosure auction calendar; may be JavaScript-rendered."
