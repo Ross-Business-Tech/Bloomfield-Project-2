@@ -1,0 +1,11 @@
+# Part A collectors. Install with: pip install -r requirements.txt
+requests>=2.32
+PyYAML>=6.0
+SQLAlchemy>=2.0
+pandas>=2.2
+openpyxl>=3.1
+beautifulsoup4>=4.12
+python-dotenv>=1.0
+# Only needed if DB_URL points at Postgres:
+# psycopg[binary]>=3.2
+pytest>=8.0

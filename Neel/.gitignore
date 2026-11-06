@@ -1,0 +1,32 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Local database + downloaded data (never committed)
+data/
+raw_files/
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+
+# Downloaded filings
+*.pdf
+*.zip
+
+# Trepp exports are LICENSED: keep them local only
+trepp_exports/
+*[Tt]repp*.csv
+*[Tt]repp*.xlsx
+*[Tt]repp*.xls
+*TREPP*
+# ...except our small FAKE fixture, which contains made-up rows only
+!fixtures/fake_trepp_export.csv
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
