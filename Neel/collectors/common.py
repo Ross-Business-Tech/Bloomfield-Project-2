@@ -580,6 +580,7 @@ def to_float(value: Any) -> float | None:
         return None
     negative = s.startswith("(") and s.endswith(")")
     s = re.sub(r"[,$%()\s]", "", s)
+    s = re.sub(r"[xX]$", "", s)  # DSCR written as "1.25x"
     try:
         num = float(s)
     except ValueError:

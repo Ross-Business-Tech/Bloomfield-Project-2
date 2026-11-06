@@ -1,0 +1,48 @@
+# Maps columns in Bloomfield's Trepp export to columns in the shared `loans` table.
+#
+# If Trepp renames a column, add the new header name to the list. No code change needed.
+# Matching ignores upper/lower case, spaces, punctuation and line breaks, so
+# "Current Bal ($)" matches "current bal".
+#
+# The header row is found automatically (the first row in the first 25 that
+# contains at least 3 of the names below), so title rows above the table are fine.
+#
+# NOTE: these header names are our best guess at a Trepp loan export. Check them
+# against Bloomfield's real file the first time you load it (the run log lists
+# every loans column it could NOT find).
+
+sheet: 0                 # XLSX only: sheet index or name
+
+columns:
+  deal_name:          ["Deal Name", "Deal", "Deal ID", "Transaction", "Trust"]
+  loan_number:        ["Loan ID", "Loan Number", "Loan #", "Prospectus Loan ID", "Loan Prospectus ID", "Trepp Loan ID", "Loan Name ID"]
+  property_name:      ["Property Name", "Loan Name", "Property"]
+  property_address:   ["Address", "Property Address", "Street Address"]
+  city:               ["City", "Property City"]
+  state:              ["State", "Property State", "St"]
+  zip:                ["Zip", "Zip Code", "Postal Code", "Property Zip"]
+  property_type:      ["Property Type", "Prop Type", "Property Type Code"]
+  borrower_name:      ["Borrower", "Borrower Name", "Sponsor"]
+  lender_name:        ["Originator", "Lender", "Loan Originator", "Loan Seller"]
+  servicer_name:      ["Master Servicer", "Servicer", "Primary Servicer"]
+  original_balance:   ["Original Balance", "Orig Balance", "Original Loan Amount", "Securitized Balance"]
+  current_balance:    ["Current Balance", "Curr Balance", "Current Bal", "Ending Balance", "Actual Balance"]
+  interest_rate:      ["Note Rate", "Current Note Rate", "Coupon", "Interest Rate"]
+  origination_date:   ["Origination Date", "Orig Date", "Note Date"]
+  maturity_date:      ["Maturity Date", "Maturity", "Anticipated Repayment Date", "ARD"]
+  dscr:               ["DSCR (NOI)", "DSCR", "NOI DSCR", "Most Recent DSCR", "DSCR NOI Most Recent"]
+  occupancy:          ["Occupancy", "Most Recent Occupancy", "Physical Occupancy", "Occ"]
+  delinquency_status: ["Payment Status", "Delinquency Status", "Delinquency", "Loan Status"]
+  special_servicing:  ["Special Servicing", "In Special Servicing", "Specially Serviced", "SS Flag"]
+  watchlist:          ["Watchlist", "On Watchlist", "Watchlist Flag", "WL Flag"]
+  watchlist_comment:  ["Watchlist Comment", "Watchlist Comments", "Watchlist Reason", "Servicer Commentary", "Comments"]
+  reporting_period:   ["Distribution Date", "As Of Date", "Reporting Period", "Period", "Remit Date"]
+
+# How to read special columns
+percent_columns: [interest_rate, occupancy]   # 5.25 or "5.25%" -> 0.0525
+flag_columns: [special_servicing, watchlist]  # Y/N, Yes/No, 1/0 -> 1/0
+date_columns: [origination_date, maturity_date, reporting_period]
+number_columns: [original_balance, current_balance, dscr]
+
+# A loan needs both of these to get a loan_id; rows missing either are skipped and logged.
+required: [deal_name, loan_number]
