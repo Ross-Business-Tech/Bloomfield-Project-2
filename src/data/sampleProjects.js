@@ -1,0 +1,111 @@
+// All projects, companies and text below are made up for the demo.
+// "pageText" stands in for what the scout reads off each project's website;
+// "snapshots" stand in for older Wayback Machine copies of that page.
+
+export const PROPERTY_TYPES = [
+  'Student housing',
+  'Multifamily',
+  'Senior housing',
+  'Hotel',
+  'Industrial',
+  'Self storage',
+  'Retail',
+  'Office',
+]
+
+export const SAMPLE_PROJECTS = [
+  {
+    id: 'kestrel-hall',
+    name: 'Kestrel Hall',
+    city: 'Ann Arbor, MI',
+    propertyType: 'Student housing',
+    developer: 'Kestrel Hall Owner LLC (sample)',
+    sourceUrl: 'kestrelhall-example.com',
+    coStatus: 'none',
+    pageText:
+      'Kestrel Hall is coming soon to campus. Opening Summer 2026 — now pre-leasing 4-bed, 4-bath suites with rooftop terrace. Reserve your spot today!',
+    snapshots: [
+      { date: '2025-02-03', text: 'Kestrel Hall: luxury student living. Opening Fall 2025.' },
+      { date: '2025-10-18', text: 'Kestrel Hall is coming soon. Opening Spring 2026, now pre-leasing.' },
+    ],
+  },
+  {
+    id: 'huron-yards',
+    name: 'Huron Yards Lofts',
+    city: 'Ypsilanti, MI',
+    propertyType: 'Multifamily',
+    developer: 'HY Lofts Partners LLC (sample)',
+    sourceUrl: 'huronyards-example.com',
+    coStatus: 'unknown',
+    pageText:
+      '212 modern lofts steps from the river. Coming soon! Delivery Q2 2026. Join our interest list for first pick of floor plans.',
+    snapshots: [{ date: '2025-06-12', text: 'Coming soon! Delivery Q2 2026.' }],
+  },
+  {
+    id: 'canopy-flats',
+    name: 'Canopy Flats',
+    city: 'Columbus, OH',
+    propertyType: 'Student housing',
+    developer: 'Canopy Flats Holdings LLC (sample)',
+    sourceUrl: 'canopyflats-example.com',
+    coStatus: 'none',
+    pageText:
+      'Now leasing for the 2026-27 school year! Canopy Flats is under construction two blocks from campus.',
+    snapshots: [],
+  },
+  {
+    id: 'maple-ridge',
+    name: 'Maple Ridge Senior Living',
+    city: 'Grand Rapids, MI',
+    propertyType: 'Senior housing',
+    developer: 'Maple Ridge Care Partners (sample)',
+    sourceUrl: 'mapleridge-example.com',
+    coStatus: 'unknown',
+    pageText: 'A new kind of senior community is coming. Opening late 2026. Schedule a preview visit.',
+    snapshots: [{ date: '2025-09-01', text: 'Opening mid-2026.' }],
+  },
+  {
+    id: 'lakeshore-inn',
+    name: 'Lakeshore Inn & Suites',
+    city: 'Traverse City, MI',
+    propertyType: 'Hotel',
+    developer: 'Lakeshore Hospitality LLC (sample)',
+    sourceUrl: 'lakeshoreinn-example.com',
+    coStatus: 'issued',
+    pageText: 'Coming soon to the bay. Opening Spring 2026. Book your summer stay.',
+    snapshots: [],
+  },
+  {
+    id: 'riverbend-storage',
+    name: 'Riverbend Self Storage',
+    city: 'Toledo, OH',
+    propertyType: 'Self storage',
+    developer: 'Riverbend Storage Co. (sample)',
+    sourceUrl: 'riverbendstorage-example.com',
+    coStatus: 'issued',
+    pageText: 'We’re open! Grand opening was March 2026. Climate-controlled units from $49/month.',
+    snapshots: [{ date: '2025-08-20', text: 'Opening March 2026.' }],
+  },
+  {
+    id: 'dexter-mill',
+    name: 'Dexter Mill Office Center',
+    city: 'Dexter, MI',
+    propertyType: 'Office',
+    developer: 'Dexter Mill Ventures LLC (sample)',
+    sourceUrl: 'dextermill-example.com',
+    coStatus: 'none',
+    pageText: 'Class A office space coming soon. Available first half of 2026. Pre-leasing now.',
+    snapshots: [{ date: '2025-03-15', text: 'Available late 2025.' }],
+  },
+  {
+    id: 'summit-commons',
+    name: 'Summit Commons',
+    city: 'East Lansing, MI',
+    propertyType: 'Student housing',
+    developer: 'Summit Commons EL LLC (sample)',
+    sourceUrl: 'summitcommons-example.com',
+    coStatus: 'unknown',
+    pageText: 'Summit Commons is coming Fall 2027. Pre-leasing opens this spring.',
+    snapshots: [],
+  },
+]
