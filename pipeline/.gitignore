@@ -1,0 +1,26 @@
+# Keep private and bulky things out of this PUBLIC repository.
+
+# Secrets (the root .gitignore also ignores .env.* so we re-allow the example file)
+.env
+.env.*
+!.env.example
+
+# Database, downloaded evidence files, the manual inbox and logs
+data/
+*.duckdb
+*.duckdb.wal
+*.xlsx
+*.xls
+
+# Anything Bloomfield sends us (Trepp exports, sample deals)
+samples/
+bloomfield_samples/
+*.private.*
+*[Tt][Rr][Ee][Pp][Pp]*
+# ...except our own Trepp *code and settings* (they contain no data)
+!collectors/trepp.py
+!config/trepp_columns.yaml
+!tests/test_trepp.py
+!tests/__pycache__
+__pycache__/
+.pytest_cache/

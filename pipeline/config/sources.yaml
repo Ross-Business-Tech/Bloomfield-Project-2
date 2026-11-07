@@ -1,0 +1,46 @@
+# ---------------------------------------------------------------------------
+# sources.yaml  -  settings shared by every collector.
+# Change numbers here instead of changing Python code.
+# ---------------------------------------------------------------------------
+
+# The name of the variable in .env that holds our contact email.
+contact_email_env: CONTACT_EMAIL
+
+# Sent as the "User-Agent" with every request. {email} is filled in from .env.
+user_agent_template: "BloomfieldSourcingResearch/0.1 (University of Michigan AI Sprint; contact: {email})"
+
+# Defaults for every website. A domain listed under "domains:" below overrides them.
+defaults:
+  seconds_between_requests: 3     # polite rate limit: 1 request every 3 seconds per website
+  timeout_seconds: 30             # give up on a request after this long
+  max_retries: 3                  # extra tries on 429 / 5xx errors (never on 401/403)
+  backoff_base_seconds: 2         # wait 2s, 4s, 8s between retries
+
+# Per-website overrides (key = the website's domain name).
+domains:
+  www.sec.gov:  { seconds_between_requests: 0.25 }   # SEC allows 10/sec; we use ~4/sec
+  data.sec.gov: { seconds_between_requests: 0.25 }
+
+# How far back to look when collecting county/court/recorder records.
+lookback_days:
+  first_run: 365    # the very first time a county is collected
+  weekly_run: 14    # every run after that
+
+# Which collectors run (and in what order) when you run everything.
+enabled_collectors:
+  - inbox
+  - trepp
+  - edgar
+  - ffiec
+  - county
+  - recorded_loans
+  - liens
+  - permits
+  - state
+
+# Manual inbox: if a dropped file has no sidecar .json and no category folder,
+# this is the doc_category it gets, by source. Anything not listed becomes "other".
+inbox:
+  default_doc_category:
+    permit: building_permit
+    state_license: license_action
