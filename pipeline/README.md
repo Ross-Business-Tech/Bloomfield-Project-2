@@ -76,3 +76,50 @@ anything private is tracked.
 Built so far: shared building blocks (`collectors/common/`), database setup, county registry,
 fake data. Still to come (in order): Trepp + inbox collector, FFIEC, EDGAR, county / recorded
 loans / liens / permits, state, `run_all`. Instructions for each will be added here as it lands.
+
+---
+
+# Part B: the Scout and the Reader
+
+* The **Reader** uses an AI model to turn documents into clean fields (with the exact quote each came from) in the `filing_fields` table.
+* The **Scout** checks a fixed list of approved websites and tracks announced projects' opening dates.
+
+Status: step (a) is built (AI wrapper, cost cap, Part B tables, field definitions). Reader and scout steps follow.
+
+## One-time setup
+
+```bash
+cd pipeline
+pip install -r requirements.txt
+brew install tesseract poppler      # Mac: needed only to read scanned PDFs and images
+python scripts/setup_db.py          # creates Part A's AND Part B's tables
+```
+
+Add to `pipeline/.env` (never commit it, never paste a key into chat):
+
+```
+LLM_API_KEY=your-key-here
+# LLM_PROVIDER=anthropic            # or openai_compatible (then also set LLM_BASE_URL)
+```
+
+Model names, prices, spending caps and privacy switches all live in `config/reader.yaml`.
+**The prices in that file are placeholders. Check your provider's price list and edit them.**
+
+## Changing AI provider or model
+
+Edit `provider` / `models` in `config/reader.yaml`, or set `LLM_PROVIDER`, `LLM_MODEL_CHEAP`, `LLM_MODEL_STRONG` in `.env`. All AI calls go through `llm/client.py`; to add a new company, add one function there and list it in `PROVIDERS`.
+
+## Reading the cost summary
+
+```bash
+python -m llm.cost            # last 7 days, by job and model
+python -m llm.cost --days 30
+```
+
+Columns: calls made, input/output tokens, and estimated dollars (tokens x the prices in `reader.yaml`). Answers served from the cache are free and not listed. The bottom line shows the last 7 days against `weekly_cost_cap_usd`. Before each call the wrapper checks the worst case against both `weekly_cost_cap_usd` and `run_cost_cap_usd` and stops with a clear message instead of going over.
+
+## Privacy
+
+* Trepp data is never sent to the AI (`trepp_ai_allowed: false`).
+* Files marked `"confidential": true`, or dropped in `manual_upload/bloomfield/`, are never sent (`bloomfield_material_ai_allowed: false`). Only Bloomfield decides whether these switches change.
+* The AI only reads text we hand it; it never browses or uses tools.

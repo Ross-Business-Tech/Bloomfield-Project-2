@@ -7,3 +7,10 @@ openpyxl
 pyyaml
 python-dotenv
 pytest
+pydantic
+pdfplumber
+pytesseract
+pdf2image
+feedparser
+rapidfuzz
+tqdm

@@ -1,0 +1,63 @@
+# ---------------------------------------------------------------------------
+# reader.yaml - settings for the AI reader and the language-model wrapper.
+# Change values here instead of changing Python code.
+# ---------------------------------------------------------------------------
+
+# Which company's AI service to call. "anthropic" or "openai_compatible".
+# (Can be overridden with LLM_PROVIDER in .env.)
+provider: anthropic
+
+# Model names. "cheap" does quick yes/no style jobs; "strong" does careful extraction.
+# The AI Sprint manager may change these; nothing in the code hardcodes a model.
+# (Overrides in .env: LLM_MODEL_CHEAP and LLM_MODEL_STRONG, or LLM_MODEL for strong.)
+models:
+  cheap: claude-haiku-5-5
+  strong: claude-sonnet-5-5
+
+# Which of the two models each job uses.
+task_models:
+  relevance: cheap          # "is this page worth reading?"
+  opening_phrase: cheap     # pull the "opening Winter 2026" phrase from a project page
+  extract: strong           # turn a document into clean fields
+  summary: strong           # plain-English flag summaries
+  split_notices: strong     # split one newspaper page into separate notices
+
+# Price per MILLION tokens, in US dollars. Used only to ESTIMATE cost and enforce the cap.
+# !!! PLACEHOLDER NUMBERS - please check your provider's current price list and edit. !!!
+prices_per_million_tokens:
+  claude-haiku-5-5:  { input: 1.00, output: 5.00 }
+  claude-sonnet-5-5: { input: 3.00, output: 15.00 }
+  default:           { input: 3.00, output: 15.00 }   # used for any model not listed above
+
+# Spending limits (US dollars). The reader stops with a clear message instead of going over.
+weekly_cost_cap_usd: 25
+run_cost_cap_usd: 10
+
+# How the wrapper talks to the service.
+llm:
+  timeout_seconds: 120
+  max_retries: 5            # extra tries on rate limits (429) and server errors (5xx)
+  backoff_base_seconds: 2   # wait 2s, 4s, 8s, 16s, 32s
+  chars_per_token: 4        # rough estimate used BEFORE a call to check the cost cap
+  openai_compatible:
+    base_url_env: LLM_BASE_URL            # set in .env; default is OpenAI's address below
+    default_base_url: https://api.openai.com/v1
+    max_tokens_field: max_tokens          # some newer services want "max_completion_tokens"
+  # Extra settings sent with every request, e.g. {temperature: 0}. Left empty on purpose:
+  # some newer models reject a temperature setting.
+  request_params: {}
+
+# ---- Reader settings (used from step b on) ----
+reader:
+  batch_size: 10
+  max_pages: 40                 # longer documents are cut down to the most relevant pages
+  max_chars: 120000             # longest text sent to the model in one call
+  max_output_tokens: 2500
+  # Which kinds of files the reader processes. sec_edgar, ffiec, cms and trepp are already
+  # parsed into tables by Part A, so the reader skips them.
+  process_sources: [county_court, recorder, public_notice, permit, state_license,
+                    manual_upload, project_site, news, auction, wsj_notice]
+
+# ---- Privacy switches. Bloomfield decides if these ever change. ----
+trepp_ai_allowed: false              # true = Trepp data may be sent to the outside AI service
+bloomfield_material_ai_allowed: false  # true = files marked confidential / from manual_upload/bloomfield/

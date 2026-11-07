@@ -23,11 +23,15 @@ from . import config
 VALID_SOURCES = {
     "county_court", "recorder", "public_notice", "permit", "state_license",
     "cms", "sec_edgar", "ffiec", "trepp", "manual_upload",
+    # added by Part B (the scout):
+    "project_site", "news", "auction", "wsj_notice",
 }
 VALID_DOC_CATEGORIES = {
     "foreclosure_notice", "receivership", "lender_lawsuit", "lis_pendens",
     "recorded_loan", "mechanics_lien", "tax_delinquency", "building_permit",
     "certificate_of_occupancy", "license_action", "business_record", "other",
+    # added by Part B (the scout):
+    "project_website", "news_article", "auction_listing", "ucc_sale_notice",
 }
 VALID_LOAN_KINDS = {
     "construction", "permanent", "extension", "modification",

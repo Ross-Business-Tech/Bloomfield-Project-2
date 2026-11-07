@@ -26,6 +26,9 @@ KIND_BY_CATEGORY = {
     "tax_delinquency": "taxdelinq", "building_permit": "permit",
     "certificate_of_occupancy": "co", "license_action": "license",
     "business_record": "bizrecord", "other": "doc",
+    # added by Part B (the scout):
+    "project_website": "projectsite", "news_article": "news",
+    "auction_listing": "auction", "ucc_sale_notice": "uccsale",
 }
 
 EXT_TO_TYPE = {
