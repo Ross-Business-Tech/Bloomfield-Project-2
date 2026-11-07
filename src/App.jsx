@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { analyzeProject, fmtDate, isoDate } from './lib/openingDate.js'
-import { PROPERTY_TYPES, SAMPLE_PROJECTS } from './data/sampleProjects.js'
+import { analyzeCreative, combine, money, pct, PERM_TERMS } from './lib/creativeSignals.js'
+import { DEFAULT_FINANCE, LENDER_TYPES, PROPERTY_TYPES, SAMPLE_PROJECTS } from './data/sampleProjects.js'
 import './App.css'
 
-const STORE_KEY = 'stale-opening-scout-v1'
+const STORE_KEY = 'stale-opening-scout-v2'
 
 const VERDICTS = {
   flag: { label: 'Flag', tone: 'flag', blurb: 'Late and still not open' },
@@ -48,10 +49,19 @@ export default function App() {
     }
   }, [projects, decisions])
 
-  const analyzed = useMemo(
-    () => projects.map((p) => ({ project: p, result: analyzeProject(p, today) })),
-    [projects, today],
-  )
+  const analyzed = useMemo(() => {
+    const base = projects.map((p) => ({ project: p, base: analyzeProject(p, today) }))
+    const sponsorKey = (p) => (p.sponsor || '').trim().toLowerCase()
+    return base.map(({ project, base: b }) => {
+      const sponsorFlags = sponsorKey(project)
+        ? base
+            .filter((o) => o.project.id !== project.id && sponsorKey(o.project) === sponsorKey(project) && o.base.verdict === 'flag')
+            .map((o) => o.project.name)
+        : []
+      const creative = analyzeCreative(project, b, { sponsorFlags }, today)
+      return { project, result: combine(b, creative) }
+    })
+  }, [projects, today])
 
   const ranked = useMemo(
     () =>
@@ -90,6 +100,9 @@ export default function App() {
         city: '',
         propertyType: 'Multifamily',
         developer: '',
+        sponsor: '',
+        lender: { name: '', type: 'Unknown' },
+        finance: { ...DEFAULT_FINANCE },
         sourceUrl: '',
         coStatus: 'unknown',
         pageText: '',
@@ -124,7 +137,7 @@ export default function App() {
           </span>
           <div>
             <h1>Stale Opening Scout</h1>
-            <p className="tag">Finds projects whose opening date has passed while the website still says “coming soon.”</p>
+            <p className="tag">Finds stalled projects and stressed construction loans before brokers do, and shows the deal angle for each.</p>
           </div>
         </div>
         <p className="today">Week of {fmtDate(today)}</p>
@@ -178,10 +191,15 @@ export default function App() {
                       {result.found ? `“${result.found.phrase}”` : 'No date found'}
                       {result.verdict === 'flag' && ` · ${result.daysLate} days late`}
                       {result.history.slips > 0 && ` · slipped ${result.history.slips}×`}
+                      {result.creative.signals.length > 0 &&
+                        ` · +${result.creative.signals.length} sign${result.creative.signals.length > 1 ? 's' : ''}`}
                     </span>
                   </span>
                   <span className="card-side">
-                    {result.verdict === 'flag' && <span className="score">{result.score}</span>}
+                    {(result.verdict === 'flag' || result.verdict === 'watch') && result.score > 0 && (
+                      <span className={`score ${result.verdict}`} title="Distress strength">{result.score}</span>
+                    )}
+                    <span className="dq" title="Deal quality">DQ {result.creative.quality.score}</span>
                     {decisions[project.id] && (
                       <span className={`decision ${decisions[project.id]}`}>
                         {DECISIONS.find((d) => d.key === decisions[project.id])?.label}
@@ -224,7 +242,7 @@ export default function App() {
 
 function Detail({ project, result, decision, onDecide, onChange, onRemove }) {
   const v = VERDICTS[result.verdict]
-  const { found, history } = result
+  const { found, history, creative } = result
   return (
     <article>
       <div className="detail-head">
@@ -239,17 +257,12 @@ function Detail({ project, result, decision, onDecide, onChange, onRemove }) {
         <span className={`pill big ${v.tone}`}>{v.label}</span>
       </div>
 
-      {result.verdict === 'flag' && (
-        <div className="meter" aria-label={`Stale-opening strength ${result.score} out of 100`}>
-          <div className="meter-label">
-            <span>Stale-opening strength</span>
-            <strong>{result.score}/100</strong>
-          </div>
-          <div className="meter-track">
-            <div className="meter-fill" style={{ width: `${result.score}%` }} />
-          </div>
-        </div>
-      )}
+      <div className="meters">
+        {(result.verdict === 'flag' || result.verdict === 'watch') && result.score > 0 && (
+          <Meter label="How desperate the owner looks" value={result.score} tone={result.verdict} />
+        )}
+        <Meter label="How good the deal could be" value={creative.quality.score} tone="ok" />
+      </div>
 
       <ul className="reasons">
         {result.reasons.map((r) => (
@@ -302,6 +315,36 @@ function Detail({ project, result, decision, onDecide, onChange, onRemove }) {
               </li>
             ))}
           </ol>
+        </div>
+      )}
+
+      {creative.signals.length > 0 && (
+        <div className="signals">
+          <h3>Other warning signs the scout found</h3>
+          <ul>
+            {creative.signals.map((s) => (
+              <li key={s.key}>
+                <span className="sig-points">+{s.points}</span>
+                <span>
+                  <strong>{s.label}.</strong> {s.detail}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {creative.refi && <RefiCard refi={creative.refi} finance={project.finance} />}
+
+      {creative.angles.length > 0 && (
+        <div className="angles">
+          <h3>Deal angle for Bloomfield</h3>
+          <ul>
+            {creative.angles.map((a) => (
+              <li key={a}>{a}</li>
+            ))}
+          </ul>
+          <p className="rule">Deal quality: {creative.quality.notes.join(' · ')}.</p>
         </div>
       )}
 
@@ -358,6 +401,36 @@ function Editor({ project, onChange }) {
           </select>
         </label>
       </div>
+      <div className="two">
+        <label>
+          Sponsor (parent company)
+          <input value={project.sponsor ?? ''} placeholder="Kestrel Development Group" onChange={(e) => onChange({ sponsor: e.target.value })} />
+        </label>
+        <label>
+          Project LLC
+          <input value={project.developer ?? ''} onChange={(e) => onChange({ developer: e.target.value })} />
+        </label>
+      </div>
+      <div className="two">
+        <label>
+          Construction lender
+          <input
+            value={project.lender?.name ?? ''}
+            onChange={(e) => onChange({ lender: { ...(project.lender ?? {}), name: e.target.value } })}
+          />
+        </label>
+        <label>
+          Lender type
+          <select
+            value={project.lender?.type ?? 'Unknown'}
+            onChange={(e) => onChange({ lender: { ...(project.lender ?? {}), type: e.target.value } })}
+          >
+            {LENDER_TYPES.map((t) => (
+              <option key={t}>{t}</option>
+            ))}
+          </select>
+        </label>
+      </div>
       <label>
         Text on the project’s website today
         <textarea
@@ -375,6 +448,7 @@ function Editor({ project, onChange }) {
           <option value="issued">Checked: issued</option>
         </select>
       </label>
+      <FinanceFields finance={project.finance} onChange={(finance) => onChange({ finance })} />
       <fieldset>
         <legend>Older copies of the page (Wayback Machine)</legend>
         {snaps.map((s, i) => (
@@ -427,7 +501,14 @@ function toProjectsRow(project, result) {
     date_slips: result.history.slips,
     days_late: result.daysLate > 0 ? result.daysLate : 0,
     stale_flag: result.verdict === 'flag',
-    stale_strength: result.score,
+    distress_score: result.score,
+    deal_quality: result.creative.quality.score,
+    sponsor: project.sponsor || null,
+    lender_name: project.lender?.name || null,
+    lender_type: project.lender?.type || null,
+    extra_signals: result.creative.signals.map((s) => s.key),
+    refi_gap: result.creative.refi ? Math.round(result.creative.refi.gap) : null,
+    loan_to_value: result.creative.refi ? Number(result.creative.refi.ltv.toFixed(3)) : null,
   }
 }
 
@@ -467,5 +548,95 @@ function RuleTable() {
         </tbody>
       </table>
     </section>
+  )
+}
+
+function Meter({ label, value, tone }) {
+  return (
+    <div className={`meter ${tone}`} aria-label={`${label}: ${value} out of 100`}>
+      <div className="meter-label">
+        <span>{label}</span>
+        <strong>{value}/100</strong>
+      </div>
+      <div className="meter-track">
+        <div className="meter-fill" style={{ width: `${value}%` }} />
+      </div>
+    </div>
+  )
+}
+
+function RefiCard({ refi, finance }) {
+  const short = refi.gap > 0
+  return (
+    <div className="refi">
+      <h3>Refinance test: can they get out of the construction loan?</h3>
+      <div className={`refi-verdict ${short ? 'bad' : 'good'}`}>
+        {short ? `Short by ${money(refi.gap)}` : `Refinances out with ${money(-refi.gap)} to spare`}
+      </div>
+      <dl className="facts">
+        <div>
+          <dt>Construction loan</dt>
+          <dd>{money(finance.loanAmount)}</dd>
+        </div>
+        <div>
+          <dt>Stabilized NOI</dt>
+          <dd>{money(refi.noi)}/yr</dd>
+        </div>
+        <div>
+          <dt>Estimated value</dt>
+          <dd>{money(refi.value)}</dd>
+        </div>
+        <div>
+          <dt>Permanent loan it supports</dt>
+          <dd>{money(refi.permLoan)}</dd>
+        </div>
+        <div>
+          <dt>Loan-to-value today</dt>
+          <dd>{pct(refi.ltv)}</dd>
+        </div>
+        <div>
+          <dt>DSCR on current loan</dt>
+          <dd className={refi.dscrAtLoan < 1 ? 'bad-text' : ''}>{refi.dscrAtLoan.toFixed(2)}x</dd>
+        </div>
+      </dl>
+      <p className="rule">
+        Permanent loan sized at {PERM_TERMS.dscr.toFixed(2)}x DSCR and {pct(PERM_TERMS.maxLtv)} LTV, {(finance.permRate * 100).toFixed(2)}% rate,{' '}
+        {PERM_TERMS.amortYears}-year amortization. The {refi.binding} limit is the one that binds.
+      </p>
+    </div>
+  )
+}
+
+const FIN_FIELDS = [
+  ['loanAmount', 'Construction loan ($)', 1, 100000],
+  ['units', 'Units (beds for student housing)', 1, 1],
+  ['rentPerUnit', 'Rent per unit / bed ($/mo)', 1, 25],
+  ['occupancy', 'Stabilized occupancy (%)', 100, 1],
+  ['expenseRatio', 'Operating expenses (% of revenue)', 100, 1],
+  ['permRate', 'Permanent loan rate (%)', 100, 0.05],
+  ['capRate', 'Cap rate (%)', 100, 0.05],
+]
+
+function FinanceFields({ finance, onChange }) {
+  const f = finance ?? DEFAULT_FINANCE
+  return (
+    <fieldset>
+      <legend>Loan and rent assumptions (for the refinance test)</legend>
+      <div className="fin-grid">
+        {FIN_FIELDS.map(([key, label, scale, step]) => (
+          <label key={key}>
+            {label}
+            <input
+              type="number"
+              inputMode="decimal"
+              step={step}
+              min="0"
+              value={f[key] ? Number((f[key] * scale).toFixed(4)) : ''}
+              onChange={(e) => onChange({ ...f, [key]: e.target.value === '' ? 0 : Number(e.target.value) / scale })}
+            />
+          </label>
+        ))}
+      </div>
+    </fieldset>
   )
 }
