@@ -84,7 +84,7 @@ loans / liens / permits, state, `run_all`. Instructions for each will be added h
 * The **Reader** uses an AI model to turn documents into clean fields (with the exact quote each came from) in the `filing_fields` table.
 * The **Scout** checks a fixed list of approved websites and tracks announced projects' opening dates.
 
-Status: step (a) is built (AI wrapper, cost cap, Part B tables, field definitions). Reader and scout steps follow.
+Status: steps (a) and (b) are built (AI wrapper, cost cap, tables, field definitions, and the whole Reader: OCR, chunking, prompt, checks, batch runner). Reader accuracy tests and the scout follow.
 
 ## One-time setup
 
@@ -123,3 +123,32 @@ Columns: calls made, input/output tokens, and estimated dollars (tokens x the pr
 * Trepp data is never sent to the AI (`trepp_ai_allowed: false`).
 * Files marked `"confidential": true`, or dropped in `manual_upload/bloomfield/`, are never sent (`bloomfield_material_ai_allowed: false`). Only Bloomfield decides whether these switches change.
 * The AI only reads text we hand it; it never browses or uses tools.
+
+## Running the Reader
+
+```bash
+cd pipeline
+python scripts/make_fake_data.py          # optional: fake documents to practice on
+python -m reader.batch --limit 5          # read 5 waiting files (needs your API key in .env)
+python -m reader.batch --state MI         # only Michigan
+python -m reader.batch --source recorder  # only one source
+python -m reader.batch --retry-failed     # also re-try files that failed before
+python -m llm.cost                        # what it cost
+```
+
+Each document becomes one row in `filing_fields` with a status:
+
+| status | meaning |
+|---|---|
+| `ok` | nothing suspicious |
+| `needs_review` | data was kept, but a person should look; `review_reason` says why (quote not found, low confidence, truncated, poor scan, impossible amount, label disagrees with Part A...) |
+| `failed` | the AI's answer was unusable twice, or the file could not be read |
+
+Good to know:
+* **Quote check:** every quote must appear in the document; a made-up quote always means `needs_review`.
+* **It skips** SEC EDGAR, FFIEC, CMS and Trepp files (Part A already turns those into tables) and anything confidential.
+* **Confidential material:** files from `data/inbox/manual_upload/bloomfield/` (you can still put `MI/washtenaw/` folders inside), or with a sidecar saying `"confidential": true`, are loaded into `raw_files` with `[CONFIDENTIAL]` at the start of `notes` and are never sent to the AI.
+* **Safe to stop and restart.** Finished files are saved immediately; answers already paid for come from the cache.
+* **Scans:** need Tesseract (`brew install tesseract poppler`). Without it, scanned files are left unread (not marked failed) and picked up next time.
+* **Changing the instructions:** edit `reader/prompt.py` and bump `PROMPT_VERSION`; the reader then re-reads everything.
+* **Spending:** the batch stops with a message when `weekly_cost_cap_usd` or `run_cost_cap_usd` would be passed.

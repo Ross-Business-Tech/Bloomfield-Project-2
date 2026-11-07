@@ -14,6 +14,10 @@ downloads the documents by hand and drops them in:
 Optional extras:
   * Put a category folder one level deeper (e.g. .../washtenaw/mechanics_lien/lien1.pdf)
     to set doc_category.
+  * manual_upload/bloomfield/ is for private Bloomfield material (for example redacted sample
+    deals). Files there still load normally (you may put <state>/<county> folders inside it),
+    but every one is marked "[CONFIDENTIAL]" in raw_files.notes so Part B never sends it to an
+    outside AI service. A sidecar with "confidential": true does the same for any file.
   * Add a "sidecar" file with the same name plus .json (lien1.pdf.json) to give details:
         {"url": "...", "source_record_id": "2026-00123", "doc_category": "mechanics_lien",
          "city": "Ann Arbor", "doc_type": "Claim of Lien", "notes": "..."}
@@ -38,6 +42,10 @@ log = get_logger("inbox")
 # Folders inside the inbox that the loader itself manages or that other code handles.
 SKIP_TOP_FOLDERS = {"_duplicates", "_rejected", "trepp"}
 NATIONAL_STATE_NAMES = {"US", "_NATIONAL", "_ALL"}
+
+# Private Bloomfield material: its raw_files.notes start with this marker (Part B checks for it).
+CONFIDENTIAL_MARKER = "[CONFIDENTIAL]"
+CONFIDENTIAL_FOLDER = "bloomfield"        # data/inbox/manual_upload/bloomfield/...
 
 
 def _is_sidecar(path: Path) -> bool:
@@ -133,6 +141,10 @@ def load_inbox(con, run=None, only_source: str | None = None, only_state: str | 
 
         # Work out state / county / category from the folder names.
         dirs = parts[1:-1]
+        confidential = False
+        if source == "manual_upload" and dirs and dirs[0].lower() == CONFIDENTIAL_FOLDER:
+            confidential = True
+            dirs = dirs[1:]                       # what is left may still be <state>/<county>/...
         state = None
         county_folder = None
         category_folder = None
@@ -168,6 +180,10 @@ def load_inbox(con, run=None, only_source: str | None = None, only_state: str | 
         notes = meta.get("notes")
         if meta.get("doc_type"):
             notes = f"doc type: {meta['doc_type']}" + (f"; {notes}" if notes else "")
+        if meta.get("confidential") is True:
+            confidential = True
+        if confidential:
+            notes = CONFIDENTIAL_MARKER + (f" {notes}" if notes else "")
         record_id = (meta.get("source_record_id") or meta.get("case_number")
                      or meta.get("instrument_number") or meta.get("permit_number"))
 

@@ -53,10 +53,24 @@ reader:
   max_pages: 40                 # longer documents are cut down to the most relevant pages
   max_chars: 120000             # longest text sent to the model in one call
   max_output_tokens: 2500
+  min_text_chars: 20            # a document with less readable text than this is not sent to the AI
+  chunk_first_pages: 3          # for long documents: always send this many pages from the start
+  truncation_needs_review: true # a document we had to cut down is flagged for a person
+  ocr_review_share: 0.5         # flag documents where more than this share of pages needed OCR
+  require_quotes: true          # every filled-in field must come with a supporting quote
+  value_in_quote_min_score: 85  # how well a field's value must match its own quote (0-100)
+  max_consecutive_llm_errors: 3 # stop the batch if the AI service keeps failing
   # Which kinds of files the reader processes. sec_edgar, ffiec, cms and trepp are already
   # parsed into tables by Part A, so the reader skips them.
   process_sources: [county_court, recorder, public_notice, permit, state_license,
                     manual_upload, project_site, news, auction, wsj_notice]
+
+# Reading text out of scans and photos.
+ocr:
+  engine: tesseract             # the engine is swappable: see reader/ocr.py (OCR_ENGINES)
+  min_chars_per_page: 40        # a PDF page with less text than this is treated as a scan
+  dpi: 200
+  language: eng
 
 # ---- Privacy switches. Bloomfield decides if these ever change. ----
 trepp_ai_allowed: false              # true = Trepp data may be sent to the outside AI service
