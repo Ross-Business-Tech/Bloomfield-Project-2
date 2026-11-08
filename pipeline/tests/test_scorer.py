@@ -262,7 +262,7 @@ def test_troubled_ann_arbor_project_ranks_first(fake_db, cfg):
     # the two middle properties are on the watch list, the 20 healthy ones are low
     assert [sp.tier for sp in ranked[1:3]] == ["watch", "watch"]
     assert all(sp.tier == "low" for sp in ranked[3:])
-    assert len(ranked) == 23
+    assert len(ranked) == 24
 
 
 def test_fake_data_without_scout_or_extras_still_flags_ann_arbor(env, cfg):
@@ -279,7 +279,7 @@ def test_write_scores_replaces_previous_run(fake_db, cfg):
     con = open_db(fake_db)
     for _ in range(2):
         write_scores(con, score_all(con, cfg, AS_OF), cfg, AS_OF)
-    assert con.execute("SELECT count(*) FROM property_scores").fetchone()[0] == 23
+    assert con.execute("SELECT count(*) FROM property_scores").fetchone()[0] == 24
     top = con.execute("SELECT property_name, tier, scoring_version FROM property_scores "
                       "ORDER BY score DESC LIMIT 1").fetchone()
     assert "Maize Row" in top[0] and top[1] == "hot" and top[2] == cfg["version"]
@@ -290,7 +290,7 @@ def test_write_scores_replaces_previous_run(fake_db, cfg):
 def test_cli_runs_and_explains(fake_db, capsys):
     assert scorer_main(["--db", str(fake_db), "--csv", "--top", "3"]) == 0
     out = capsys.readouterr().out
-    assert "1 hot, 2 watch, 20 low" in out and "Maize Row" in out
+    assert "1 hot, 2 watch, 21 low" in out and "Maize Row" in out
     assert scorer_main(["--db", str(fake_db), "--explain", "maize"]) == 0
     assert "evidence: recorded_loans/fake-rl-annarbor-1" in capsys.readouterr().out
     assert scorer_main(["--db", str(fake_db), "--explain", "no such place"]) == 1

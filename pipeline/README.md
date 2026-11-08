@@ -155,6 +155,67 @@ Good to know:
 
 ---
 
+# Part C: the Matcher (Maahik)
+
+The **Matcher** works out which records are about the same thing. County clerks, the SEC,
+Trepp, the AI Reader and the Scout all spell names and addresses differently and use different
+IDs. Part C links them so Part D (and people) see one property, one loan, one bank and one
+company instead of five half-stories. No AI, no internet, no cost.
+
+## Run it
+
+```bash
+cd pipeline
+python scripts/setup_db.py
+python scripts/make_fake_data.py        # Part A's fake records
+python scripts/make_fake_readings.py    # pretends Part B's Reader already read them
+python -m matcher                       # link everything, print a summary
+python -m matcher --show "maize row"    # one property: its records, loan story, companies
+python -m matcher --review              # "maybe" matches waiting for a person
+python -m matcher --decide rev-xxxx yes # or no; the next run obeys it
+python -m scorer                        # Part D then scores using Part C's links
+```
+
+Expected on the fake data: 24 properties; the Ann Arbor project's 5 records linked into one,
+with one construction loan still OPEN after ~42 months and 1 modification; the Phoenix loan that
+EDGAR and Trepp both report recognized as one loan; all 6 lender names linked to their FFIEC
+bank; and **one** maybe-match for a person (a tax notice that misspells the hotel's street as
+"Exmaple Drive"). Answer it `yes` and re-run: 23 properties, and the hotel's score rises.
+
+## What it links, and how carefully
+
+| What | Rule | Table |
+|---|---|---|
+| **Same property** | 1. same parcel number in the same state; 2. same street address in the same state ("12 North Main Street, Suite 2" = "12 N. Main St"); 3. same house number + nearly the same street name (92+/100), same city/ZIP; 4. records with no address: same property name (92+) in the same state/city | `properties`, `property_links` |
+| **Never auto-linked** | street type differs (Main **St** vs Main **Ave**), direction differs (**N** Elm vs **S** Elm), different ZIP/city, scores 80-92: these go to `match_review` | `match_review` |
+| **Loan histories** | each construction/permanent mortgage with its follow-ups: modifications and extensions, assignments, the permanent loan that took out a construction loan, and the release. Follow-ups use the instrument number they cite; otherwise the newest open loan (releases: the oldest) | `loan_histories` (status `open` / `refinanced` / `released`, `months_open`) |
+| **Same CMBS loan, two sources** | same property, different source (EDGAR vs Trepp), and same deal name or original balance within 2%. Two loans from one source are never merged | `loan_links` (`loan_group_id`) |
+| **Lender -> bank** | lender name vs `bank_stats.bank_name` after cleanup ("N.A.", "Inc."...): exact or 92+ = linked; 80-92 = a person decides; otherwise no link (a wrong bank is worse than none) | `lender_links` (`rssd_id`) |
+| **Companies and people** | every borrower, developer, lender, servicer, lien claimant and other party; spellings merged when they clean up the same ("Maize Row Holdings, L.L.C." = "MAIZE ROW HOLDINGS LLC") or are 95+ alike **and** start with the same word **and** don't differ by a number or phase ("Example Property 01" stays apart from "02") | `entities`, `entity_links` |
+| **State registry lookups** | LLCs, corporations and partnerships that are borrowers or developers are added to Part A's `entity_lookup_requests` (once per name and state) | `entity_lookup_requests` |
+
+Every run rebuilds Part C's tables from scratch (in one transaction), except `match_review`,
+where people's answers are kept. Property IDs are stable: the same parcel/address always gets the
+same `property_id`, and it's the same ID Part D's fallback would give.
+
+All thresholds live in `config/matching.yaml`.
+
+## For the other parts
+
+* **Part D** reads `property_links` (grouping), `lender_links` (which bank) and `loan_links`
+  (count an EDGAR + Trepp loan once). It still runs without Part C, using a cautious fallback.
+* **Part A** gets lookup requests in `entity_lookup_requests` (`requested_by = part_c_matcher`).
+* `property_links.record_table` is `recorded_loans`, `filing_fields`, `loans` or `projects`;
+  `record_id` is that table's key (`record_id`, `file_id`, `loan_key`, `project_id`).
+
+## Tests
+
+```bash
+python -m pytest tests/test_matcher.py
+```
+
+---
+
 # Part D: the Scorer (Maahik)
 
 The **Scorer** gathers everything we know about each property, looks for warning signs, and
@@ -169,6 +230,7 @@ cd pipeline
 python scripts/setup_db.py
 python scripts/make_fake_data.py        # Part A's fake records
 python scripts/make_fake_readings.py    # pretends Part B's Reader already read them
+python -m matcher                       # Part C: link records (optional but recommended)
 python -m scorer                        # score and print the top 15
 python -m scorer --explain "maize row"  # every reason behind one property's score
 python -m scorer --csv                  # also save data/exports/scores-<date>.csv
@@ -177,8 +239,9 @@ python -m scorer --as-of 2026-06-30     # score as if it were that day
 ```
 
 Expected: the fake Ann Arbor student-housing project is #1 (HOT), two fake properties are on
-the WATCH list (an office with a weak CMBS loan, a hotel with a lis pendens), and the 20
-healthy ones score 0.
+the WATCH list (an office with a weak CMBS loan, a hotel with a lis pendens), a tax notice with
+a misspelled hotel address scores low on its own until a person confirms the match in Part C,
+and the 20 healthy ones score 0.
 
 ## What it looks for
 
@@ -210,11 +273,13 @@ Each run replaces both tables, so they always show the latest picture.
 
 ## How it decides which records are the same property
 
-* **If Part C (the Matcher) writes `property_links`**, the scorer uses it. Contract:
+* **When Part C (the Matcher) has run**, the scorer uses its `property_links`. Contract:
   `property_links(property_id TEXT, record_table TEXT, record_id TEXT)`, where `record_table` is
   `recorded_loans`, `filing_fields`, `loans` or `projects` and `record_id` is that table's key
   (`record_id`, `file_id`, `loan_key`, `project_id`). Extra columns are fine.
-* **Until then (or for records Part C didn't link)**, a cautious fallback: records belong together
+* It also uses Part C's `lender_links` (which bank a lender name is, including a person's
+  answers) and `loan_links` (the same CMBS loan from EDGAR and Trepp is counted once).
+* **Until Part C has run (or for records it didn't link)**, a cautious fallback: records belong together
   when they share a parcel number, or the same street address in the same state
   ("12 North Main Street" = "12 N. Main St"). No fuzzy name matching: that's Part C's job.
 

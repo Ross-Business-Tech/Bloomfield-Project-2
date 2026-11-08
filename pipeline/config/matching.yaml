@@ -1,0 +1,36 @@
+# ---------------------------------------------------------------------------
+# matching.yaml - Part C (the Matcher) settings. Scores are 0-100 (100 = identical).
+# "auto" = link without asking. "review" = between review and auto, a person decides
+# (python -m matcher --review). Below "review" = not the same.
+# ---------------------------------------------------------------------------
+version: "c-1.0"
+
+address:
+  # Same state, same house number, street names this similar ("Campus Wy" / "Campus Way").
+  auto: 92
+  review: 80
+
+property_name:
+  # Records with no usable address, matched by property/project name within the same state
+  # (and the same city when both are known).
+  auto: 92
+  review: 80
+
+lender:
+  # Lender name in a record vs bank name in FFIEC bank_stats.
+  auto: 92
+  review: 80
+
+entity:
+  # Two spellings of a borrower/developer name. Must also start with the same word.
+  auto: 95
+
+cmbs:
+  # Two CMBS loans on the same property from different sources are the same loan when the
+  # deal names match, or when original balances are within this share of each other.
+  balance_tolerance: 0.02
+
+entity_lookups:
+  # Ask Part A's state.py to look up these kinds of entities in the state business registry.
+  kinds: [llc, corporation, partnership]
+  roles: [borrower, developer]

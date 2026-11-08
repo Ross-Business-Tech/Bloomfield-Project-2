@@ -18,41 +18,20 @@ Part C contract (what the scorer expects, if Part C provides it):
 from __future__ import annotations
 
 import hashlib
-import re
 from dataclasses import dataclass, field
+
+from matcher import normalize as nz
 
 from .schema import table_exists
 
-_SUFFIXES = {
-    "street": "st", "avenue": "ave", "road": "rd", "boulevard": "blvd", "drive": "dr",
-    "lane": "ln", "court": "ct", "place": "pl", "parkway": "pkwy", "highway": "hwy",
-    "circle": "cir", "terrace": "ter", "square": "sq", "north": "n", "south": "s",
-    "east": "e", "west": "w", "suite": "ste",
-}
-
-
-def street_key(address: str | None) -> str | None:
-    """'1000 Example Campus Way, Ann Arbor, MI' -> '1000 example campus way'."""
-    if not address:
-        return None
-    line = address.split(",")[0].lower()
-    line = re.sub(r"[^a-z0-9 ]", " ", line)
-    words = [_SUFFIXES.get(w, w) for w in line.split()]
-    # A street address needs a number and a name; "TBD" or a bare city is not enough.
-    if len(words) < 2 or not any(ch.isdigit() for ch in words[0]):
-        return None
-    return " ".join(words)
-
-
-def parcel_key(parcel: str | None) -> str | None:
-    if not parcel:
-        return None
-    p = re.sub(r"[^a-z0-9]", "", parcel.lower())
-    return p or None
+# Same cleanup and keys as Part C (matcher/normalize.py), so the fallback gives the same
+# property_id that Part C would.
+street_key = nz.street_key
+parcel_key = nz.parcel_key
 
 
 def record_keys(state, parcel, address) -> list[str]:
-    st = (state or "").upper().strip() or "??"
+    st = nz.state_key(state)
     keys = []
     if (p := parcel_key(parcel)):
         keys.append(f"parcel:{st}|{p}")
@@ -94,7 +73,12 @@ def load_records(con) -> dict[str, list[dict]]:
             FROM filing_fields f LEFT JOIN raw_files r USING (file_id)
             WHERE coalesce(f.status, 'ok') <> 'failed'""")
     if table_exists(con, "loans"):
-        out["loans"] = _rows(con, "SELECT * FROM loans")
+        if table_exists(con, "loan_links"):
+            # Part C's loan_group_id: the same loan reported by EDGAR and Trepp is scored once.
+            out["loans"] = _rows(con, """SELECT l.*, k.loan_group_id FROM loans l
+                                         LEFT JOIN loan_links k USING (loan_key)""")
+        else:
+            out["loans"] = _rows(con, "SELECT * FROM loans")
     if table_exists(con, "projects"):
         out["projects"] = _rows(con, "SELECT * FROM projects")
     return out

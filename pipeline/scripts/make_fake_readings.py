@@ -151,6 +151,19 @@ def fake_middle_properties(con) -> None:
         "report_period": TODAY.replace(day=1) - timedelta(days=1), "file_id": "fake-edgar-trust-xml",
         "collected_at": NOW,
     }, replace=True)
+    # ...and the same loan again as Trepp reports it (different key, address spelled differently).
+    # Part C should see these are one loan; Part D should not count its problems twice.
+    db.insert_row(con, "loans", {
+        "loan_key": "trepp:FAKE Trust 2019-C77:77", "source": "trepp",
+        "deal_name": "FAKE TRUST 2019-C77", "property_name": "Camelback Office Plaza FAKE",
+        "property_address": "4400 Sample Ave.", "property_city": "Phoenix",
+        "property_state": "AZ", "property_zip": None, "property_type": "OF",
+        "current_balance": 27_350_000, "original_balance": 29_000_000,
+        "maturity_date": TODAY + timedelta(days=240), "dscr": 0.86, "occupancy": 0.70,
+        "payment_status": "Current", "servicer_name": "Example Servicing FAKE", "watchlist_flag": True,
+        "servicer_commentary": None, "report_period": TODAY.replace(day=1) - timedelta(days=31),
+        "file_id": None, "collected_at": NOW,
+    }, replace=True)
 
     # 2) Chicago hotel: lis pendens filed by its lender.
     fid = "fake-chicago-lis-pendens"
@@ -175,6 +188,25 @@ def fake_middle_properties(con) -> None:
     })
     upsert(con, "filing_fields", row)
 
+    # 3) A tax notice with a typo in the hotel's street name ("Exmaple"). Too uncertain to link
+    #    automatically: Part C should put it in match_review for a person to decide.
+    fid = "fake-chicago-tax-typo"
+    con.execute("DELETE FROM raw_files WHERE file_id = ?", [fid])
+    store_file(con, (
+        "*** FAKE DOCUMENT - NOT A REAL RECORD ***\nDELINQUENT PROPERTY TAX LIST (excerpt)\n"
+        "Owner: Example Lakeside Hotel FAKE LLC  77 Exmaple Drive, Chicago, IL  2025 taxes unpaid\n").encode(),
+        source="public_notice", doc_category="tax_delinquency", collector_name=COLLECTOR,
+        state="IL", county="Cook County", city="Chicago", url=None, source_record_id=None,
+        notes="FAKE DATA for development", ext="txt", file_id=fid)
+    row = base_row(fid, "tax_delinquency")
+    row.update({
+        "borrower_name": "Example Lakeside Hotel, FAKE L.L.C.", "property_address": "77 Exmaple Drive, Chicago, IL",
+        "property_city": "Chicago", "property_state": "IL", "filing_date": TODAY - timedelta(days=30),
+        "distress_tags": json.dumps(["tax_delinquent"]),
+        "quotes": json.dumps({"filing_type": "DELINQUENT PROPERTY TAX LIST"}),
+    })
+    upsert(con, "filing_fields", row)
+
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Fake Reader output so the Scorer can be demoed.")
@@ -186,7 +218,7 @@ def main() -> None:
     n = fake_readings(con)
     fake_scout_project(con)
     fake_middle_properties(con)
-    print(f"Fake readings: {n} documents 'read', 1 Scout project, 2 extra watch-list properties.")
+    print(f"Fake readings: {n} documents 'read', 1 Scout project, 2 extra watch-list properties, 1 typo for review.")
     print("Next: python -m scorer")
 
 
