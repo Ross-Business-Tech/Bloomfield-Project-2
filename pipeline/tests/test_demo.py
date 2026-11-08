@@ -126,3 +126,44 @@ def test_demo_command_explains_itself_when_the_page_is_missing(tmp_path, monkeyp
     monkeypatch.setattr(sys, "argv", ["demo", "--no-build", "--out", str(tmp_path / "missing.html")])
     with pytest.raises(SystemExit, match="python -m demo"):
         cli.main()
+
+
+# ---- the client-call version: light by default, guided walkthrough, results and asks --------------------------------
+def test_the_page_opens_in_light_mode_even_if_the_computer_is_in_dark_mode(built):
+    html = built["html"]
+    assert '<html lang="en" data-theme="light">' in html                  # light is the default
+    assert "prefers-color-scheme" not in html                             # the computer's dark mode never overrides it
+    assert 'id="th-light"' in html and 'id="th-dark"' in html and ':root[data-theme="dark"]' in html
+
+
+def test_the_walkthrough_covers_every_part_of_the_call_in_order(built):
+    html = built["html"]
+    steps = re.findall(r"\{ part: '([^']+)', title: '((?:[^'\\]|\\.)+)'", html)
+    assert len(steps) == 14
+    parts = [p for p, _ in steps]
+    assert parts == sorted(parts, key=["Our build", "Demo", "Results", "Feedback", "Ship"].index)      # agenda order
+    assert [t.replace("\\'", "'") for _, t in steps][0] == "Bloomfield's problem"
+    assert any("Nov 17" in t for _, t in steps) and any("working" in t for _, t in steps)
+
+
+def test_the_shared_content_is_embedded_and_honest(built):
+    c = built["embedded"]["content"]
+    assert c["event"]["client"] == "Bloomfield Capital" and len(c["asks"]) == 4
+    assert {s["status"] for s in c["signals"]} <= {"built", "partial", "later"} and len(c["signals"]) == 7
+    assert c["results"]["live_reader"]["ok"] + c["results"]["live_reader"]["review"] + c["results"]["live_reader"]["failed"] == \
+        c["results"]["live_reader"]["documents"] == 18
+    assert "Not measured yet" in c["results"]["accuracy"]                  # we do not claim an accuracy we have not measured
+    assert any(w["status"] == "Need from you" for w in c["weak_spots"]) and len(c["ships"]["in"]) >= 3
+    assert any("outreach" in x.lower() for x in c["ships"]["later"])
+    assert [s["when"] for s in c["next_steps"]][-1] == "NOV 17"
+
+
+def test_the_flags_page_does_not_call_sample_readings_real_ai_output(built):
+    assert "documents turned into fields (sample readings" in built["html"]
+    assert "read by the AI Reader (" not in built["html"]
+
+
+def test_the_recorded_numbers_match_what_the_demo_actually_built(built):
+    s, r = built["embedded"]["summary"], built["embedded"]["content"]["results"]["pipeline"]
+    assert (s["documents"], s["records_linked"], s["properties"], s["hot"], s["watch"]) == \
+        (r["documents"], r["linked"], r["properties"], r["hot"], r["watch"])

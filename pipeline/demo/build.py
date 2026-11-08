@@ -26,6 +26,7 @@ PIPELINE = Path(__file__).resolve().parents[1]
 DEMO_DIR = Path(__file__).resolve().parent
 TEMPLATE = DEMO_DIR / "template.html"
 RECORDED = DEMO_DIR / "recorded_readings.json"
+CONTENT = DEMO_DIR / "content.json"        # the story, test results and asks (shared with the slide deck)
 DEFAULT_OUT = DEMO_DIR / "demo.html"
 DEFAULT_DATA = PIPELINE / "data" / "demo"
 
@@ -315,7 +316,8 @@ def export(con, recorded: list[dict]) -> dict:
         "reader": reader_examples(recorded),
         "review": {"matches": [_clean(r) for r in _rows(con, "SELECT review_id, kind, left_label, right_label, score, reason FROM match_review WHERE decision IS NULL")]},
         "sources": sources_table(),
-        "weights": _weights()}
+        "weights": _weights(),
+        "content": json.loads(CONTENT.read_text(encoding="utf-8")) if CONTENT.exists() else {}}
 
 
 def _weights() -> list[dict]:
