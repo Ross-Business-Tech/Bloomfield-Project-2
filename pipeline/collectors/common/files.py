@@ -18,6 +18,10 @@ from . import config
 from .db import (VALID_DOC_CATEGORIES, VALID_SOURCES, find_file_by_hash,
                  insert_row, utc_now)
 
+# Put this at the start of raw_files.notes for big structured files (spreadsheets of many records) that a
+# collector already turned into table rows. Part B's reader skips them (no point paying an AI to read them).
+STRUCTURED_MARKER = "[structured]"
+
 # A short word used inside file IDs, e.g. "washtenaw-lien-2026-00123".
 KIND_BY_CATEGORY = {
     "foreclosure_notice": "foreclosure", "receivership": "receivership",
@@ -33,7 +37,7 @@ KIND_BY_CATEGORY = {
 
 EXT_TO_TYPE = {
     "pdf": "pdf", "htm": "html", "html": "html", "xml": "xml", "csv": "csv",
-    "txt": "txt", "json": "json", "xlsx": "xlsx", "xls": "xlsx",
+    "txt": "txt", "json": "json", "xlsx": "xlsx", "xls": "xlsx", "zip": "zip",
     "png": "image", "jpg": "image", "jpeg": "image", "gif": "image",
     "tif": "image", "tiff": "image",
 }

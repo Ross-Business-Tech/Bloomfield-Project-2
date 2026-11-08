@@ -32,6 +32,11 @@ class FakeResponse:
         self.url = url
 
 
+    def json(self):
+        import json
+        return json.loads(self.text)
+
+
 class FakeSession:
     """Pretend website. `pages` maps a URL to a FakeResponse (or a list, used one at a time)."""
 

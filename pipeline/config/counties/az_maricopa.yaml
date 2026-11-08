@@ -1,0 +1,18 @@
+# Maricopa County, AZ. Status: manual_inbox until a person checks the sites below and their terms of use.
+county: Maricopa County
+state: AZ
+fips: "04013"
+status: manual_inbox
+priority: 2
+notes: "Phoenix / Tempe (ASU). Arizona trustee sale notices are recorded with the County Recorder. TODO verify each site below (terms of use, robots.txt, whether a login or CAPTCHA is needed); then switch a source to scrape or open_data_api (see _template.yaml) and set status: configured."
+
+sources:
+  court:
+    access: manual_inbox
+    notes: "Maricopa County Superior Court case search. Not checked yet: a person downloads filings by hand into data/inbox/county_court/AZ/<county>/."
+  recorder:
+    access: manual_inbox
+    notes: "Maricopa County Recorder document search. Not checked yet: drop documents into data/inbox/recorder/AZ/<county>/."
+  public_notice:
+    access: manual_inbox
+    notes: "Arizona Newspapers Association public notices site. Not checked yet: drop notices into data/inbox/public_notice/AZ/<county>/."

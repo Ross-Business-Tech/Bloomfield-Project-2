@@ -1,0 +1,18 @@
+# Miami-Dade County, FL. Status: manual_inbox until a person checks the sites below and their terms of use.
+county: Miami-Dade County
+state: FL
+fips: "12086"
+status: manual_inbox
+priority: 2
+notes: "Miami (UM and FIU). Foreclosure sales are run online by the Clerk of Courts (an auction calendar, which may be JavaScript-driven). TODO verify each site below (terms of use, robots.txt, whether a login or CAPTCHA is needed); then switch a source to scrape or open_data_api (see _template.yaml) and set status: configured."
+
+sources:
+  court:
+    access: manual_inbox
+    notes: "Miami-Dade Clerk of the Courts online case search and foreclosure auction calendar. Not checked yet: a person downloads filings by hand into data/inbox/county_court/FL/<county>/."
+  recorder:
+    access: manual_inbox
+    notes: "Miami-Dade Clerk, official records search. Not checked yet: drop documents into data/inbox/recorder/FL/<county>/."
+  public_notice:
+    access: manual_inbox
+    notes: "Florida Press Association public notice site (floridapublicnotices.com). Not checked yet: drop notices into data/inbox/public_notice/FL/<county>/."

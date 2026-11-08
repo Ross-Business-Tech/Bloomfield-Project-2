@@ -1,0 +1,78 @@
+# ---------------------------------------------------------------------------
+# _template.yaml - how to describe a county (or a whole state) to collectors/county.py.
+# Copy this file to config/counties/<state>_<county>.yaml (for example mi_washtenaw.yaml), or run
+#     python scripts/add_county.py <FIPS>
+# which fills in the top part from the county registry. Files starting with "_" are ignored by the code.
+#
+# A county only gets a real config once a person has checked its websites and terms of use.
+# Anything you are not sure about stays access: manual_inbox (people drop files in data/inbox/).
+# NEVER add settings that log in, solve CAPTCHAs or get around a block.
+# ---------------------------------------------------------------------------
+
+county: Example County          # the official name (as in the county registry)
+state: XX                       # 2-letter code
+fips: "00000"                   # 5-digit FIPS code (keep the quotes)
+status: manual_inbox            # configured = a scraper/API works | manual_inbox = people drop files
+priority: 5                     # 1 = most important county (just a number for sorting)
+notes: "Who checked this and when; terms of use link; anything odd about the sites."
+
+# For a STATEWIDE file (one config for every county in a state: statewide court search, public
+# notice sites run by the press association, state open-data portals) delete county/fips above and add:
+#   statewide: true
+# The sources below then run once for the state, and cover every county.
+
+sources:                        # include only the ones that exist; any may be manual_inbox
+  court:                        # -> raw_files.source = county_court
+    access: manual_inbox        # scrape | open_data_api | manual_inbox
+    notes: "Case search needs a login / CAPTCHA, so a person downloads filings by hand."
+
+  recorder:                     # -> recorder (recorded documents: mortgages, liens, ...)
+    access: manual_inbox
+
+  public_notice:                # -> public_notice (foreclosure and other legal notices)
+    access: scrape              # EXAMPLE of a scrape source; delete or change
+    base_url: "https://notices.example.gov"
+    # {since:...}, {until:...} (any strftime format), {page} and {doc_type} are filled in for you.
+    search_url: "/search?from={since:%m/%d/%Y}&to={until:%m/%d/%Y}&page={page}"
+    layout: table               # table = rows with the selectors below | links = a page of PDF links
+    selectors:                  # CSS selectors, relative to one result row. "@href" reads an attribute.
+      row: "table.results tr.case"
+      record_id: "td.case-no"           # case / instrument / notice number
+      filing_date: "td.filed"
+      parties: "td.parties"
+      document_type: "td.type"
+      case_type: "td.case-type"         # optional: lets us skip residential / consumer cases
+      document_link: "td.doc a@href"    # link to the PDF / HTML file
+    date_format: "%m/%d/%Y"
+    paging:
+      next_selector: "a.next"           # the "next page" link ... or use  page_param: true  with {page} in search_url
+      max_pages: 5
+    # Which document types to collect, and the doc_category each gets in raw_files. A row whose
+    # document type matches none of these is skipped. "value" is matched as text (or give "match": a regex).
+    doc_types:
+      - {value: "FORECLOSURE", doc_category: foreclosure_notice}
+      - {value: "RECEIVERSHIP", doc_category: receivership}
+      - {value: "LIS PENDENS", doc_category: lis_pendens}
+      - {value: "TAX DELINQUEN", doc_category: tax_delinquency}
+    # Skip rows the site itself labels residential / consumer (regular expressions, any capitals).
+    skip_labels: ["residential", "consumer", "small claims", "landlord"]
+    max_results: 200            # most records saved per run
+
+    # --- the OTHER kind of source: an open-data portal (Socrata, ArcGIS or plain JSON) ---
+    # access: open_data_api
+    # base_url: "https://data.example.gov"       # used to complete relative document links
+    # api:
+    #   format: socrata          # socrata | arcgis | json (json also needs records_path: "data.items")
+    #   url: "https://data.example.gov/resource/abcd-1234.json"
+    #   params: {"$where": "filed_date >= '{since:%Y-%m-%d}'", "$order": "filed_date DESC"}
+    #   limit_param: "$limit"
+    #   offset_param: "$offset"  # paging
+    #   page_size: 500
+    #   max_pages: 5
+    # fields:                    # our name: the portal's field name
+    #   record_id: case_number
+    #   filing_date: filed_date
+    #   parties: defendant_name
+    #   document_type: case_type
+    #   document_link: document_url
+    # doc_types / skip_labels / max_results work exactly as above.

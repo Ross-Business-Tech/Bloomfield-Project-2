@@ -1,0 +1,79 @@
+# ---------------------------------------------------------------------------
+# ffiec.yaml - settings for collectors/ffiec.py (FFIEC Call Report bulk data, one file per quarter).
+#
+# !!! THE ITEM CODES BELOW ARE UNVERIFIED !!!
+# The sandbox that built this could not reach ffiec.gov or federalreserve.gov, so nobody has checked
+# these against the official MDRM data dictionary. They come from Neel's draft plus a correction
+# (see the note on nonfarm nonresidential). DO NOT TRUST THEM UNTIL VERIFIED:
+#   1. Look each code up at https://www.federalreserve.gov/apps/mdrm/data-dictionary
+#      (or on the FFIEC 041 form, Schedules RC-C Part I and RC-N), and fix any wrong ones here.
+#   2. Or just load one real quarter: the collector prints a "code audit" showing the description
+#      the FFIEC file itself gives for each code, and warns when a description does not mention
+#      the words listed under `expect`. Check that table by eye.
+#
+# How it works: each item is listed once, WITHOUT the RCON/RCFD prefix. The collector tries every
+# prefix below in order and uses the first one that has a number for that bank.
+#   RCON = domestic offices only (what most banks report)
+#   RCFD = consolidated (banks with foreign offices); added in case a bank reports only these.
+# Call report amounts are in THOUSANDS of dollars; bank_stats stores plain DOLLARS (x 1,000).
+#
+# Commercial real estate (CRE) here = construction & land development + multifamily +
+# nonfarm nonresidential, the same three groups the spec asks for.
+# ---------------------------------------------------------------------------
+
+prefixes: ["RCON", "RCFD"]
+id_column: "IDRSSD"
+
+# Where the files come from. The FFIEC bulk page is a web form (not a plain download link), so a
+# person downloads "Call Reports -- Single Period", tab-delimited, one zip per quarter, and drops the
+# zips in data/inbox/ffiec/. Steps are in the README.
+quarters_to_keep: 6        # a hint for people: download the latest 6 quarters
+
+# Panel of Reporters file (bank names). Possible column headers, first match wins.
+por_file_pattern: "POR"
+por_columns:
+  bank_name: ["Financial Institution Name", "FINANCIAL INSTITUTION NAME"]
+  city:      ["Financial Institution City", "FINANCIAL INSTITUTION CITY"]
+  state:     ["Financial Institution State", "FINANCIAL INSTITUTION STATE"]
+
+# measure: which bank_stats column the item feeds
+#   cre_construction / cre_multifamily / cre_nonfarm_nonres  -> loan balances (Schedule RC-C Part I)
+#   past_due_30_89 / past_due_90_plus / nonaccrual           -> Schedule RC-N, columns A / B / C
+# group: construction | multifamily | nonfarm (used for the audit table)
+# expect: words the file's own description of the item should contain (checked case-insensitively)
+items:
+  # ---- Schedule RC-C Part I: loan balances ----
+  F158: {measure: cre_construction,   expect: ["construction", "1-4"]}      # 1-4 family residential construction
+  F159: {measure: cre_construction,   expect: ["construction"]}              # other construction + land development
+  "1460": {measure: cre_multifamily,  expect: ["multifamily"]}               # multifamily (5 or more) residential
+  F160: {measure: cre_nonfarm_nonres, expect: ["nonfarm", "owner"]}          # nonfarm nonresidential, owner-occupied
+  F161: {measure: cre_nonfarm_nonres, expect: ["nonfarm"]}                   # nonfarm nonresidential, other
+
+  # ---- Schedule RC-N: past due 30-89 days and still accruing (column A) ----
+  F172: {measure: past_due_30_89, expect: ["1-4", "past due"]}               # construction, 1-4 family
+  F173: {measure: past_due_30_89, expect: ["construction", "past due"]}      # construction, other
+  "3499": {measure: past_due_30_89, expect: ["multifamily", "past due"]}
+  F178: {measure: past_due_30_89, expect: ["owner", "past due"]}             # nonfarm nonres, owner-occupied
+  F181: {measure: past_due_30_89, expect: ["nonfarm", "past due"]}           # nonfarm nonres, other
+
+  # ---- Schedule RC-N: past due 90 days or more and still accruing (column B) ----
+  F174: {measure: past_due_90_plus, expect: ["1-4", "past due"]}
+  F175: {measure: past_due_90_plus, expect: ["construction", "past due"]}
+  "3500": {measure: past_due_90_plus, expect: ["multifamily", "past due"]}
+  F179: {measure: past_due_90_plus, expect: ["owner", "past due"]}
+  F182: {measure: past_due_90_plus, expect: ["nonfarm", "past due"]}
+
+  # ---- Schedule RC-N: nonaccrual (column C) ----
+  F176: {measure: nonaccrual, expect: ["1-4", "nonaccrual"]}
+  F177: {measure: nonaccrual, expect: ["construction", "nonaccrual"]}
+  "3501": {measure: nonaccrual, expect: ["multifamily", "nonaccrual"]}
+  # NOTE: Neel's draft used F182 for owner-occupied nonaccrual and F183 for other nonaccrual.
+  # F182 appears above as the 90+ days past due code for "other nonfarm nonresidential", and the
+  # pattern of the neighbouring codes (F172-F177, 3499-3501) is three consecutive codes per loan
+  # type (30-89, 90+, nonaccrual), so owner-occupied should be F178/F179/F180 and other nonfarm
+  # nonresidential F181/F182/F183. Using that. VERIFY.
+  F180: {measure: nonaccrual, expect: ["owner", "nonaccrual"]}
+  F183: {measure: nonaccrual, expect: ["nonfarm", "nonaccrual"]}
+
+# Two quarters are "consecutive" if their report dates are no more than this many days apart.
+max_quarter_gap_days: 120

@@ -73,9 +73,9 @@ anything private is tracked.
 
 ## Status
 
-Built so far: shared building blocks (`collectors/common/`), database setup, county registry,
-fake data. Still to come (in order): Trepp + inbox collector, FFIEC, EDGAR, county / recorded
-loans / liens / permits, state, `run_all`. Instructions for each will be added here as it lands.
+Built: shared building blocks (`collectors/common/`), database setup, county registry, fake data, and the
+collectors below (ported from Neel's version onto this shared design). NOT built yet: `recorded_loans.py`,
+`liens.py`, `permits.py`. See "Running the collectors".
 
 ---
 
@@ -223,3 +223,58 @@ Each run replaces both tables, so they always show the latest picture.
 ```bash
 python -m pytest tests/test_scorer.py
 ```
+
+
+---
+
+# Running the collectors (Part A)
+
+All commands run from the `pipeline/` folder. Everything is logged in the `collector_runs` table.
+
+```bash
+python -m collectors.run_all                                  # every collector, in order, with a summary
+python -m collectors.run_all --only county --county mi_washtenaw
+python -m collectors.run_all --state MI                       # one state: inbox + county only
+```
+
+| Collector | What it does | Where its input comes from |
+|---|---|---|
+| `trepp.py` | Loads the Trepp screen (DSCR under 1.0x) into `loans` (source `trepp`). Stays local; never sent anywhere. | Drop the CSV/Excel in `data/inbox/trepp/`. Columns: `config/trepp_columns.yaml`. |
+| `edgar.py` | CMBS loans from SEC ABS-EE filings into `loans` (source `sec_edgar`), newest report per loan; every XML kept in `raw_files`. At most 20 trusts per run. | Automatic (SEC, 4 requests/sec). Manual fallback: `data/inbox/sec_edgar/` plus a `.json` sidecar `{"notes": "deal=<trust name>"}`. |
+| `ffiec.py` | Bank CRE balances, past dues, nonaccruals and trends into `bank_stats`. | Download by hand (below) into `data/inbox/ffiec/`. |
+| `county.py` | County/statewide court, recorder and public-notice records into `raw_files`, driven by `config/counties/*.yaml`. | Per-county YAML. Today every sample county is `manual_inbox`. |
+| `state.py` | CMS nursing home data (all states), state licensing actions, business-registry lookups for Part C. | `config/state_sources.yaml`, `config/state_registry.yaml`. |
+
+## Things that are NOT verified yet (please check)
+
+The sandbox these were built in could not reach ffiec.gov, federalreserve.gov or sec.gov, so:
+
+* **FFIEC item codes** (`config/ffiec.yaml`) and **EDGAR XML tag names** (`config/edgar.yaml`) are marked UNVERIFIED. The
+  first real run prints a **code audit / tag audit** that shows what the real file says each one means and warns about
+  mismatches. Check it by eye, then fix the YAML. One code was changed from Neel's draft (owner-occupied nonfarm
+  nonresidential nonaccrual: F182 -> F180) because F182 looks like another line; verify it.
+  `python -m collectors.ffiec --audit some.zip` prints just the audit.
+* **CMS dataset IDs** and the **column names** in `config/state_sources.yaml`; **every county site and state agency page**.
+  Anything unchecked stays `manual_inbox` / `enabled: false` until a person checks its terms of use.
+
+## Getting the FFIEC files
+
+The FFIEC page is a web form, not a plain link: 1) open https://cdr.ffiec.gov/public/PWS/DownloadBulkData.aspx,
+2) Available Products: *Call Reports -- Single Period*, 3) Reporting Period End Date: a quarter, 4) File Format:
+*Tab Delimited*, click Download, 5) repeat for the last 6 quarters and drop the zips in `data/inbox/ffiec/`, then
+`python -m collectors.ffiec`. Amounts are stored in dollars (the call report uses thousands). `cre_nonaccrual_ratio` is a
+fraction (0.03 = 3%); `nonaccrual_change_qoq` is the change in that ratio; `rising_two_quarters` is true when the ratio rose
+this quarter and the one before.
+
+## Adding a county
+
+1. `python scripts/load_county_registry.py` once (loads every county into `county_registry`).
+2. `python scripts/add_county.py 26161` (the FIPS code), or `--state MI --county Washtenaw`. This writes
+   `config/counties/mi_washtenaw.yaml` with everything set to `manual_inbox`.
+3. Check the county's court, recorder and notice sites (terms of use, robots.txt, login/CAPTCHA). If automation is allowed,
+   describe the site in the YAML (see `config/counties/_template.yaml`: CSS selectors for the case number, filing date,
+   parties, document type and document link, or an open-data API) and set `status: configured`.
+4. `python scripts/load_county_registry.py` again updates the county's status in the registry. No Python changes.
+
+A file with `statewide: true` covers a whole state (statewide court search, press-association notice sites).
+If a site blocks automation, `county.py` switches that source to the manual inbox and logs why.

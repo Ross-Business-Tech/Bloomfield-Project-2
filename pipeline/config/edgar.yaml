@@ -1,0 +1,76 @@
+# ---------------------------------------------------------------------------
+# edgar.yaml - settings for collectors/edgar.py (SEC EDGAR CMBS loan-level data, Form ABS-EE).
+#
+# !!! THE XML TAG NAMES BELOW ARE UNVERIFIED !!!
+# The sandbox that built this could not reach sec.gov, so nobody has checked these tag names against
+# the SEC's "EDGAR ABS XML Technical Specification" (CMBS / Schedule AL, Regulation AB Item 1125).
+# They come from Neel's draft. Before trusting the output:
+#   1. Download one real EX-102 XML from a recent CMBS ABS-EE filing (BANK, BENCHMARK, COMM... trusts).
+#   2. Open it and compare the tag names with the lists below; add the real name to a list.
+#   3. Or just run the collector: it prints a "tag audit" naming every field it found NO value for,
+#      plus the tag names actually present in the first loan, so a wrong name is easy to spot.
+# No code change is needed to fix a tag name: edit this file.
+# ---------------------------------------------------------------------------
+
+index_url: "https://www.sec.gov/Archives/edgar/full-index/{year}/QTR{quarter}/form.idx"
+filing_index_url: "https://www.sec.gov/Archives/edgar/data/{cik}/{accession_nodash}/index.json"
+file_url: "https://www.sec.gov/Archives/edgar/data/{cik}/{accession_nodash}/{name}"
+
+form_types: ["ABS-EE", "ABS-EE/A"]
+
+# Default run size: look this many days back, and read at most this many trusts (keeps tests fast).
+lookback_days: 45
+max_trusts: 20
+
+# ABS-EE is also used for auto loans, leases, etc. Only filers whose name matches one of these
+# (case-insensitive regex) are treated as CMBS. --cik overrides this.
+cmbs_name_patterns:
+  - "commercial mortgage"
+  - "commercial mtg"
+  - "mortgage trust"
+  - "mortgage securities trust"
+  - "capital i trust"
+  - "\\bcmbs\\b"
+  - "^bank\\d? \\d{4}-"
+  - "^benchmark \\d{4}-"
+  - "^bbcms"
+  - "^cgcmt"
+  - "^comm \\d{4}-"
+  - "^csail"
+  - "^msbam"
+  - "^wfcm"
+
+# EX-102 is the asset-level data file inside each ABS-EE filing.
+asset_file_pattern: "ex[a-z_-]*102[^/]*\\.xml$"   # exh_102.xml, ex-102.xml, ex102.xml
+max_file_mb: 200            # skip anything bigger (protects against non-CMBS giants)
+
+# The repeating element for one loan, and its nested property element (local names, no namespace).
+record_tag: "assets"
+property_tag: "property"
+
+# loans column -> candidate XML tag names (first non-empty one wins). Each tag is looked for in the
+# loan element first, then in its FIRST <property> element. (Loans with several properties keep only
+# the first property's address.)
+fields:
+  loan_number:       ["assetNumber"]
+  report_period:     ["reportingPeriodEndDate"]
+  servicer_name:     ["primaryServicerName"]
+  original_balance:  ["originalLoanAmount"]
+  current_balance:   ["reportPeriodEndActualBalanceAmount", "reportPeriodEndScheduledLoanBalanceAmount"]
+  maturity_date:     ["maturityDate"]
+  payment_status:    ["paymentStatusLoanCode"]
+  property_name:     ["propertyName"]
+  property_address:  ["propertyAddress"]
+  property_city:     ["propertyCity"]
+  property_state:    ["propertyState"]
+  property_zip:      ["propertyZip"]
+  property_type:     ["propertyTypeCode"]
+  dscr:              ["mostRecentDebtServiceCoverageNetOperatingIncomePercentage", "debtServiceCoverageNetOperatingIncomeSecuritizationPercentage"]
+  occupancy:         ["mostRecentPhysicalOccupancyPercentage", "physicalOccupancySecuritizationPercentage"]
+
+# Fields the audit does NOT complain about if they are empty (they are often blank for real).
+optional_fields: [property_name, property_zip, payment_status, original_balance]
+
+# Occupancy is stored as a fraction (0.95). If the file gives a number above this, it is read as a
+# percent (95 -> 0.95).
+occupancy_percent_threshold: 1.5

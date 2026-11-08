@@ -20,6 +20,7 @@ defaults:
 domains:
   www.sec.gov:  { seconds_between_requests: 0.25 }   # SEC allows 10/sec; we use ~4/sec
   data.sec.gov: { seconds_between_requests: 0.25 }
+  data.cms.gov: { seconds_between_requests: 1, timeout_seconds: 300 }   # some CMS files are large
 
 # How far back to look when collecting county/court/recorder records.
 lookback_days:

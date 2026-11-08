@@ -40,7 +40,7 @@ from .log import get_logger
 log = get_logger("inbox")
 
 # Folders inside the inbox that the loader itself manages or that other code handles.
-SKIP_TOP_FOLDERS = {"_duplicates", "_rejected", "trepp"}
+SKIP_TOP_FOLDERS = {"_duplicates", "_rejected", "trepp", "ffiec"}   # trepp.py and ffiec.py have their own loaders
 NATIONAL_STATE_NAMES = {"US", "_NATIONAL", "_ALL"}
 
 # Private Bloomfield material: its raw_files.notes start with this marker (Part B checks for it).

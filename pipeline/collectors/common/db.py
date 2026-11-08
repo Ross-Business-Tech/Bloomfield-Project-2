@@ -159,6 +159,27 @@ CREATE TABLE IF NOT EXISTS county_registry (
     notes          TEXT
 );
 
+-- Facility licensing and CMS nursing-home records (one row per facility per as-of date), with simple
+-- distress flags from rules in config/state_sources.yaml. (Table idea and rules: Neel.)
+CREATE TABLE IF NOT EXISTS licensing_records (
+    record_id        TEXT,
+    as_of_date       DATE,
+    source           TEXT,              -- cms or state_license
+    file_id          TEXT,              -- the downloaded file in raw_files
+    facility_name    TEXT,
+    legal_name       TEXT,
+    license_number   TEXT,
+    facility_type    TEXT,
+    address          TEXT,
+    city             TEXT,
+    state            TEXT,
+    zip              TEXT,
+    status           TEXT,              -- license status / special-focus status as given
+    distress_flag    BOOLEAN,
+    distress_reason  TEXT,              -- why distress_flag is true
+    PRIMARY KEY (record_id, as_of_date)
+);
+
 -- Part C writes names it wants looked up in state business registries; state.py answers.
 -- status: pending / done / failed
 CREATE TABLE IF NOT EXISTS entity_lookup_requests (
@@ -172,7 +193,7 @@ CREATE TABLE IF NOT EXISTS entity_lookup_requests (
 
 KNOWN_TABLES = {
     "raw_files", "recorded_loans", "loans", "bank_stats", "collector_runs",
-    "collector_state", "county_registry", "entity_lookup_requests",
+    "collector_state", "county_registry", "entity_lookup_requests", "licensing_records",
 }
 
 
@@ -246,6 +267,19 @@ def find_file_by_hash(con, file_hash: str) -> tuple[str, str] | None:
     return con.execute(
         "SELECT file_id, file_path FROM raw_files WHERE file_hash = ? LIMIT 1", [file_hash]
     ).fetchone()
+
+
+def upsert_loan_if_newer(con, row: dict) -> bool:
+    """
+    The loans table keeps ONE row per loan: its most recent report. Insert the row if the loan is
+    new, or replace the old row if this report_period is the same or later. Returns True if the
+    row was written, False if we already had a newer report (the older one is ignored).
+    """
+    old = con.execute("SELECT report_period FROM loans WHERE loan_key = ?", [row["loan_key"]]).fetchone()
+    if old and old[0] is not None and row.get("report_period") is not None and old[0] > row["report_period"]:
+        return False
+    insert_row(con, "loans", row, replace=True)
+    return True
 
 
 # ---------------------------------------------------------------------------

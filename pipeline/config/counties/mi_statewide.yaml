@@ -1,0 +1,13 @@
+# Michigan statewide sources: one config that covers every Michigan county (statewide: true).
+# Both are unchecked, so both stay manual_inbox. Files go in data/inbox/<source>/MI/_statewide/.
+statewide: true
+state: MI
+notes: "TODO verify terms of use before automating anything."
+
+sources:
+  court:
+    access: manual_inbox
+    notes: "Statewide Michigan court case search (MiCOURT / Michigan courts). Not confirmed to allow automation."
+  public_notice:
+    access: manual_inbox
+    notes: "Michigan Press Association public notice site (michiganpublicnotices.com). Terms not checked; may use a CAPTCHA."

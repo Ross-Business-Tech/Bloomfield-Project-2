@@ -27,6 +27,7 @@ from tqdm import tqdm
 
 from collectors.common import config
 from collectors.common.db import utc_now
+from collectors.common.files import STRUCTURED_MARKER
 from collectors.common.inbox import CONFIDENTIAL_MARKER
 from collectors.common.log import get_logger, setup_logging
 from llm import cost
@@ -214,7 +215,7 @@ def run(limit: int | None = None, state: str | None = None, source: str | None =
     started = datetime.now()
 
     summary = {"candidates": 0, "processed": 0, "ok": 0, "needs_review": 0, "failed": 0,
-               "not_processed": 0, "skipped_confidential": 0, "real_calls": 0, "cached_calls": 0,
+               "not_processed": 0, "skipped_confidential": 0, "skipped_structured": 0, "real_calls": 0, "cached_calls": 0,
                "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "stopped": None}
 
     # Private material is left out unless Bloomfield has switched it on in reader.yaml.
@@ -222,7 +223,9 @@ def run(limit: int | None = None, state: str | None = None, source: str | None =
     summary["candidates"] = len(rows)
     todo = []
     for r in rows:
-        if is_confidential(r) and not cfg.get("bloomfield_material_ai_allowed", False):
+        if STRUCTURED_MARKER in (r.get("notes") or ""):      # already parsed into tables by a collector
+            summary["skipped_structured"] += 1
+        elif is_confidential(r) and not cfg.get("bloomfield_material_ai_allowed", False):
             summary["skipped_confidential"] += 1
         else:
             todo.append(r)
@@ -283,6 +286,8 @@ def print_summary(s: dict, limit=None) -> None:
           f"ok {s['ok']}, needs_review {s['needs_review']}, failed {s['failed']}")
     if s["not_processed"]:
         print(f"  NOT processed (will retry): {s['not_processed']}  (OCR missing or AI service errors)")
+    if s["skipped_structured"]:
+        print(f"  skipped (structured):       {s['skipped_structured']}  (spreadsheets a collector already loaded into tables)")
     if s["skipped_confidential"]:
         print(f"  skipped (confidential):     {s['skipped_confidential']}  (never sent to an outside AI)")
     print(f"  AI calls:                   {s['real_calls']} new, {s['cached_calls']} answered from cache (free)")

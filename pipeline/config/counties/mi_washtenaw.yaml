@@ -1,0 +1,18 @@
+# Washtenaw County, MI. Status: manual_inbox until a person checks the sites below and their terms of use.
+county: Washtenaw County
+state: MI
+fips: "26161"
+status: manual_inbox
+priority: 1
+notes: "Ann Arbor is our demo case (student housing project). TODO verify each site below (terms of use, robots.txt, whether a login or CAPTCHA is needed); then switch a source to scrape or open_data_api (see _template.yaml) and set status: configured."
+
+sources:
+  court:
+    access: manual_inbox
+    notes: "Washtenaw County Trial Court (22nd Circuit and 14A District) case search. Not checked yet: a person downloads filings by hand into data/inbox/county_court/MI/<county>/."
+  recorder:
+    access: manual_inbox
+    notes: "Washtenaw County Register of Deeds (recorded mortgages, liens). Not checked yet: drop documents into data/inbox/recorder/MI/<county>/."
+  public_notice:
+    access: manual_inbox
+    notes: "Washtenaw County / Michigan public notice sites (foreclosure by advertisement is published in newspapers and posted by the Sheriff). Not checked yet: drop notices into data/inbox/public_notice/MI/<county>/."
