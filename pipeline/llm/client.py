@@ -8,8 +8,8 @@ In plain English: every other file that needs the AI calls call_llm(). This file
   * sends the request, retrying politely if the service is busy,
   * records what it cost and saves the answer in the cache.
 
-To switch AI companies, change LLM_PROVIDER in .env (or add a new "_call_<name>"
-function below and list it in PROVIDERS). Nothing else in the project needs to change.
+To switch AI companies, change LLM_PROVIDER in .env (anthropic, gemini or openai_compatible), or add a
+new builder/parser pair below and list it in PROVIDERS. Nothing else in the project needs to change.
 
 The AI here does ONE narrow job per call: it reads the text we give it and returns text.
 It never browses, runs tools, or decides what to do next. API keys come from .env and
@@ -102,19 +102,23 @@ def _post_json(url: str, headers: dict, payload: dict, timeout: float):
     return resp.status_code, body, resp.headers
 
 
+KEY_NAMES = {"anthropic": ["ANTHROPIC_API_KEY"], "openai_compatible": ["OPENAI_API_KEY"],
+             "gemini": ["GEMINI_API_KEY", "GOOGLE_API_KEY"]}
+
+
 def get_api_key(provider: str) -> str:
     """Find the API key in .env. LLM_API_KEY works for any provider."""
     config.load_env()
-    specific = {"anthropic": "ANTHROPIC_API_KEY", "openai_compatible": "OPENAI_API_KEY"}.get(provider)
-    for name in ("LLM_API_KEY", specific):
-        if name and os.environ.get(name, "").strip():
+    names = ["LLM_API_KEY"] + KEY_NAMES.get(provider, [])
+    for name in names:
+        if os.environ.get(name, "").strip():
             return os.environ[name].strip()
     raise LLMConfigError(
-        f"No API key found for provider '{provider}'. Add {specific or 'LLM_API_KEY'} "
-        "(or LLM_API_KEY) to pipeline/.env. See .env.example.")
+        f"No API key found for provider '{provider}'. Add {' (or '.join(names[1:] or names)}"
+        f"{')' if len(names) > 2 else ''} or LLM_API_KEY to pipeline/.env. See .env.example.")
 
 
-def _build_anthropic(model, system_prompt, user_text, max_tokens, cfg, key):
+def _build_anthropic(model, system_prompt, user_text, max_tokens, cfg, key, task=None):
     payload = {"model": model, "max_tokens": max_tokens, "system": system_prompt,
                "messages": [{"role": "user", "content": user_text}]}
     payload.update((cfg.get("llm") or {}).get("request_params") or {})
@@ -129,7 +133,7 @@ def _parse_anthropic(body):
             body.get("stop_reason") == "max_tokens")
 
 
-def _build_openai_compatible(model, system_prompt, user_text, max_tokens, cfg, key):
+def _build_openai_compatible(model, system_prompt, user_text, max_tokens, cfg, key, task=None):
     oc = (cfg.get("llm") or {}).get("openai_compatible") or {}
     base = (os.environ.get(oc.get("base_url_env", "LLM_BASE_URL"), "").strip()
             or oc.get("default_base_url", "https://api.openai.com/v1")).rstrip("/")
@@ -150,10 +154,50 @@ def _parse_openai_compatible(body):
             choice.get("finish_reason") == "length")
 
 
+def _build_gemini(model, system_prompt, user_text, max_tokens, cfg, key, task=None):
+    """
+    Google's Gemini API (generateContent). The key travels in a header (never in the web address, so it can
+    not end up in logs). For jobs that must return JSON we ask Gemini for JSON output. Gemini's "thinking"
+    uses up the answer budget, so reader.yaml turns it down per model (model_generation_config).
+    """
+    g = (cfg.get("llm") or {}).get("gemini") or {}
+    base = (os.environ.get("GEMINI_BASE_URL", "").strip()
+            or g.get("base_url", "https://generativelanguage.googleapis.com/v1beta")).rstrip("/")
+    name = model[len("models/"):] if model.startswith("models/") else model
+    generation = {"maxOutputTokens": max_tokens}
+    generation.update(g.get("generation_config") or {})
+    generation.update((g.get("model_generation_config") or {}).get(name) or {})   # per-model thinking setting
+    if task in (g.get("json_tasks") or []):
+        generation["responseMimeType"] = "application/json"
+    payload = {"systemInstruction": {"parts": [{"text": system_prompt}]},
+               "contents": [{"role": "user", "parts": [{"text": user_text}]}],
+               "generationConfig": generation}
+    headers = {"x-goog-api-key": key, "content-type": "application/json"}
+    return f"{base}/models/{name}:generateContent", headers, payload
+
+
+def _parse_gemini(body):
+    candidates = body.get("candidates") or []
+    if not candidates:                                    # the prompt itself was refused
+        reason = (body.get("promptFeedback") or {}).get("blockReason")
+        raise LLMError("Gemini returned no answer" + (f" (the request was blocked: {reason})" if reason else "")
+                       + ". Nothing was retried; check the document text and Gemini's safety settings.")
+    cand = candidates[0]
+    parts = (cand.get("content") or {}).get("parts") or []
+    text = "".join(p.get("text", "") for p in parts if not p.get("thought"))   # skip "thought summary" parts
+    finish = cand.get("finishReason")
+    if not text and finish not in (None, "STOP", "MAX_TOKENS"):                # SAFETY, RECITATION, ...
+        raise LLMError(f"Gemini stopped without an answer (finishReason={finish}). Nothing was retried.")
+    usage = body.get("usageMetadata") or {}
+    out = (usage.get("candidatesTokenCount") or 0) + (usage.get("thoughtsTokenCount") or 0)   # thinking is billed
+    return text, usage.get("promptTokenCount"), (out if usage else None), finish == "MAX_TOKENS"
+
+
 # provider name -> (request builder, response parser). Add a new provider here.
 PROVIDERS = {
     "anthropic": (_build_anthropic, _parse_anthropic),
     "openai_compatible": (_build_openai_compatible, _parse_openai_compatible),
+    "gemini": (_build_gemini, _parse_gemini),
 }
 
 
@@ -168,10 +212,22 @@ def _error_message(body: dict, key: str) -> str:
     return _scrub(str(msg)[:300], key)
 
 
-def _send_with_retries(provider, model, system_prompt, user_text, max_tokens, cfg, key):
+def _retry_delay_from_body(body: dict) -> float:
+    """Gemini says how long to wait inside the 429 error ("retryDelay": "34s"). Seconds, capped at 60."""
+    try:
+        for detail in (body.get("error") or {}).get("details") or []:
+            delay = str(detail.get("retryDelay") or "")
+            if delay.endswith("s"):
+                return min(float(delay[:-1]), 60.0)
+    except (ValueError, AttributeError, TypeError):
+        pass
+    return 0.0
+
+
+def _send_with_retries(provider, model, system_prompt, user_text, max_tokens, cfg, key, task=None):
     """Send the request; retry on rate limits / server errors / timeouts with growing waits."""
     build, parse = PROVIDERS[provider]
-    url, headers, payload = build(model, system_prompt, user_text, max_tokens, cfg, key)
+    url, headers, payload = build(model, system_prompt, user_text, max_tokens, cfg, key, task)
     llm_cfg = cfg.get("llm") or {}
     max_retries = int(llm_cfg.get("max_retries", 5))
     base = float(llm_cfg.get("backoff_base_seconds", 2))
@@ -190,7 +246,7 @@ def _send_with_retries(provider, model, system_prompt, user_text, max_tokens, cf
             if status == 429 or status >= 500:           # busy or broken on their end: retry
                 problem = f"HTTP {status}"
                 ra = str(resp_headers.get("retry-after", resp_headers.get("Retry-After", "")))
-                retry_after = min(float(ra), 60) if ra.replace(".", "", 1).isdigit() else 0.0
+                retry_after = min(float(ra), 60) if ra.replace(".", "", 1).isdigit() else _retry_delay_from_body(body)
             else:                                         # our mistake (bad key, bad request): stop
                 raise LLMError(f"{provider} rejected the request (HTTP {status}): "
                                f"{_error_message(body, key)}")
@@ -253,7 +309,7 @@ def call_llm_detailed(task: str, system_prompt: str, user_text: str, max_output_
 
     # 3. The real call.
     text, in_tok, out_tok, truncated = _send_with_retries(
-        provider, model, system_prompt, user_text, max_output_tokens, cfg, api_key)
+        provider, model, system_prompt, user_text, max_output_tokens, cfg, api_key, task)
     in_tok = int(in_tok) if in_tok is not None else est_in
     out_tok = int(out_tok) if out_tok is not None else cost.estimate_tokens(text, cfg)
 

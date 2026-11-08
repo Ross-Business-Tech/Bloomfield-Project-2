@@ -67,8 +67,8 @@ def test_task_picks_cheap_or_strong_model(bcon, monkeypatch):
     cfg = make_cfg()
     client.call_llm("relevance", "s", "t", 100, con=bcon, cfg=cfg)
     client.call_llm("extract", "s", "t", 100, con=bcon, cfg=cfg)
-    assert api.calls[0][2]["model"] == cfg["models"]["cheap"]
-    assert api.calls[1][2]["model"] == cfg["models"]["strong"]
+    assert api.calls[0][2]["model"] == cfg["models"]["anthropic"]["cheap"]
+    assert api.calls[1][2]["model"] == cfg["models"]["anthropic"]["strong"]
 
 
 def test_env_can_override_models_and_provider(bcon, monkeypatch):

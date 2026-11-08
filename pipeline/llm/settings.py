@@ -36,7 +36,18 @@ def model_for_task(task: str, cfg: dict) -> str:
         env_name = os.environ.get("LLM_MODEL_CHEAP")
     else:
         env_name = os.environ.get("LLM_MODEL_STRONG") or os.environ.get("LLM_MODEL")
-    model = env_name or (cfg.get("models") or {}).get(tier)
+    return env_name or _configured_model(cfg, tier)
+
+
+def _configured_model(cfg: dict, tier: str) -> str:
+    """
+    reader.yaml lists model names PER PROVIDER (models: {anthropic: {cheap, strong}, gemini: {...}}) so that
+    switching provider also switches model names. A flat {cheap, strong} list still works.
+    """
+    models = cfg.get("models") or {}
+    names = models if ("cheap" in models or "strong" in models) else models.get(provider_name(cfg), {})
+    model = (names or {}).get(tier)
     if not model:
-        raise ValueError(f"No model configured for tier {tier!r} in reader.yaml")
+        raise ValueError(f"No '{tier}' model is set for provider '{provider_name(cfg)}' under models: in "
+                         "config/reader.yaml (or set LLM_MODEL_CHEAP / LLM_MODEL_STRONG in .env).")
     return model

@@ -42,9 +42,16 @@ class FakeLLM:
         self.queue = []
         self.status = 200
         self.calls = []
+        self.requests = []          # (url, headers, payload) for every call
 
     def __call__(self, url, headers, payload, timeout):
-        user_text = payload["messages"][0]["content"]
+        self.requests.append((url, headers, payload))
+        if "generateContent" in url:                                    # Gemini
+            user_text = payload["contents"][0]["parts"][0]["text"]
+        elif "system" in payload:                                       # Anthropic
+            user_text = payload["messages"][0]["content"]
+        else:                                                           # OpenAI-style (system is message 0)
+            user_text = payload["messages"][-1]["content"]
         self.calls.append(user_text)
         if self.status != 200:
             return self.status, {"error": {"message": "fake failure"}}, {}
@@ -53,6 +60,13 @@ class FakeLLM:
         else:
             r = self.reply(user_text) if callable(self.reply) else self.reply
         text = r if isinstance(r, str) else json.dumps(r)
+        if "generateContent" in url:
+            return 200, {"candidates": [{"content": {"parts": [{"text": text}]}, "finishReason": "STOP"}],
+                         "usageMetadata": {"promptTokenCount": 200, "candidatesTokenCount": 100,
+                                           "totalTokenCount": 300}}, {}
+        if "chat/completions" in url:
+            return 200, {"choices": [{"message": {"content": text}, "finish_reason": "stop"}],
+                         "usage": {"prompt_tokens": 200, "completion_tokens": 100}}, {}
         return 200, {"content": [{"type": "text", "text": text}],
                      "usage": {"input_tokens": 200, "output_tokens": 100},
                      "stop_reason": "end_turn"}, {}
@@ -61,7 +75,8 @@ class FakeLLM:
 @pytest.fixture
 def fake_llm(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
-    for name in ("LLM_PROVIDER", "LLM_API_KEY", "LLM_MODEL", "LLM_MODEL_STRONG", "LLM_MODEL_CHEAP"):
+    for name in ("LLM_PROVIDER", "LLM_API_KEY", "LLM_MODEL", "LLM_MODEL_STRONG", "LLM_MODEL_CHEAP",
+                 "GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY", "LLM_BASE_URL", "GEMINI_BASE_URL"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(client, "_sleep", lambda s: None)
     cost.reset_run_spend()

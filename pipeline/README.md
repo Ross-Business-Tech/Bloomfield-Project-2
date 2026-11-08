@@ -107,7 +107,43 @@ Model names, prices, spending caps and privacy switches all live in `config/read
 
 ## Changing AI provider or model
 
-Edit `provider` / `models` in `config/reader.yaml`, or set `LLM_PROVIDER`, `LLM_MODEL_CHEAP`, `LLM_MODEL_STRONG` in `.env`. All AI calls go through `llm/client.py`; to add a new company, add one function there and list it in `PROVIDERS`.
+Supported: `anthropic`, `gemini` (Google) and `openai_compatible`. Set `LLM_PROVIDER` in `.env`, or `provider` in
+`config/reader.yaml`. Model names are listed **per provider** in `reader.yaml` (`models:`), so switching provider also
+switches models; override with `LLM_MODEL_CHEAP` / `LLM_MODEL_STRONG` in `.env`. All AI calls go through
+`llm/client.py`; to add a new company, add a request builder and a reply parser there and list them in `PROVIDERS`.
+
+**Only Part B's Reader (and later the Scout) calls an AI.** Part C (matcher) and Part D (scorer) are plain code, so they
+work the same whichever provider you choose.
+
+### Using Gemini
+
+```bash
+# in pipeline/.env
+LLM_PROVIDER=gemini
+GEMINI_API_KEY=your-key        # GOOGLE_API_KEY or LLM_API_KEY also work. Never commit or paste it.
+```
+
+```bash
+python -m llm.check        # 30-second test with two tiny real calls (a fraction of a cent); explains any problem
+python -m reader.batch --limit 5
+```
+
+* **Models** (tested against the real Gemini API on 2026-11-08): cheap = `gemini-3.5-flash-lite`, strong =
+  `gemini-3.5-flash`. Google retires models quickly (the 2.5 models already refuse new accounts, with a 404): if
+  `llm.check` says a model is "no longer available", list current names and edit `models.gemini` in `reader.yaml`.
+* **Thinking:** Gemini "thinks" before answering, which costs tokens and can cut the JSON answer off. The setting that
+  turns it down differs per model (`model_generation_config` in `reader.yaml`: Flash-Lite wants `thinkingLevel: minimal`,
+  Flash wants `thinkingBudget: 0`). If you switch models and get HTTP 400, try the other setting. Gemini counts thinking
+  tokens as output tokens in the cost estimate.
+* **Prices** for the Gemini 3.5 models are not listed yet: the (higher) default price is used for the cost cap until you add
+  the real ones under `prices_per_million_tokens`.
+* **Busy models:** some Gemini models are slow or return "high demand" (503) errors at times. The wrapper retries up to 5
+  times with waits (and obeys Google's "retry in N seconds" hint); the timeout is 180 s.
+* **Free keys:** Google may use prompts sent through free (unbilled) keys to improve its products. Our reader only sends
+  public records (never Trepp or Bloomfield material), but use a paid, billing-enabled key if that matters to Bloomfield.
+* Gemini through its OpenAI-compatible address also works: `LLM_PROVIDER=openai_compatible`,
+  `LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai`, `LLM_API_KEY=<key>`, plus Gemini model names under
+  `models.openai_compatible`.
 
 ## Reading the cost summary
 

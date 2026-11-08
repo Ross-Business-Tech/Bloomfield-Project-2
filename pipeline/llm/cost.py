@@ -21,6 +21,9 @@ from .settings import load_reader_config
 log = get_logger("llm.cost")
 
 
+_warned_models: set[str] = set()      # say "no price listed" once per model, not on every call
+
+
 class CostCapExceeded(RuntimeError):
     """Raised when the next AI call would push spending over a cap."""
 
@@ -52,7 +55,9 @@ def get_prices(model: str, cfg: dict | None = None) -> tuple[float, float]:
     entry = table.get(model)
     if entry is None:
         entry = table.get("default")
-        log.warning("no price listed for model %r in reader.yaml; using the default price", model)
+        if model not in _warned_models:
+            _warned_models.add(model)
+            log.warning("no price listed for model %r in reader.yaml; using the default price (add the real one)", model)
     if entry is None:
         raise ValueError("reader.yaml needs prices_per_million_tokens (at least a 'default')")
     return float(entry["input"]) / 1_000_000, float(entry["output"]) / 1_000_000

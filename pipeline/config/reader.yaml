@@ -3,16 +3,24 @@
 # Change values here instead of changing Python code.
 # ---------------------------------------------------------------------------
 
-# Which company's AI service to call. "anthropic" or "openai_compatible".
-# (Can be overridden with LLM_PROVIDER in .env.)
+# Which company's AI service to call: "anthropic", "gemini" (Google) or "openai_compatible".
+# (Can be overridden with LLM_PROVIDER in .env, which is the easy way to switch.)
 provider: anthropic
 
-# Model names. "cheap" does quick yes/no style jobs; "strong" does careful extraction.
-# The AI Sprint manager may change these; nothing in the code hardcodes a model.
+# Model names PER PROVIDER, so switching provider also switches models. "cheap" does quick yes/no style jobs;
+# "strong" does careful extraction. The AI Sprint manager may change these; nothing in the code hardcodes a model.
 # (Overrides in .env: LLM_MODEL_CHEAP and LLM_MODEL_STRONG, or LLM_MODEL for strong.)
 models:
-  cheap: claude-haiku-5-5
-  strong: claude-sonnet-5-5
+  anthropic:
+    cheap: claude-haiku-5-5
+    strong: claude-sonnet-5-5
+  gemini:                          # tested against the real Gemini API on 2026-11-08. Google retires models quickly:
+    cheap: gemini-3.5-flash-lite   # re-check any time with  python -m llm.check  (it fails clearly if a name is retired).
+    strong: gemini-3.5-flash       # Pinned on purpose: "-latest" aliases change behaviour silently. (3.7 / 3.8 Flash were
+                                   # very slow, 60-110 s per call, when tested; 2.5 models are retired for new accounts.)
+  openai_compatible:               # e.g. OpenAI itself, or Gemini through Google's OpenAI-compatible address
+    cheap: gpt-4o-mini
+    strong: gpt-4o
 
 # Which of the two models each job uses.
 task_models:
@@ -27,6 +35,11 @@ task_models:
 prices_per_million_tokens:
   claude-haiku-5-5:  { input: 1.00, output: 5.00 }
   claude-sonnet-5-5: { input: 3.00, output: 15.00 }
+  # Gemini 3.5 Flash / Flash-Lite: NO PRICE LISTED YET, so the (higher) default below is used for the cost cap.
+  # Look up Google's current prices and add lines like:   gemini-3.5-flash: { input: ..., output: ... }
+  # (thinking tokens are billed as output tokens)
+  gpt-4o-mini:           { input: 0.15, output: 0.60 }    # approximate: verify
+  gpt-4o:                { input: 2.50, output: 10.00 }   # approximate: verify
   default:           { input: 3.00, output: 15.00 }   # used for any model not listed above
 
 # Spending limits (US dollars). The reader stops with a clear message instead of going over.
@@ -35,7 +48,7 @@ run_cost_cap_usd: 10
 
 # How the wrapper talks to the service.
 llm:
-  timeout_seconds: 120
+  timeout_seconds: 180           # Gemini can take over a minute when Google is busy
   max_retries: 5            # extra tries on rate limits (429) and server errors (5xx)
   backoff_base_seconds: 2   # wait 2s, 4s, 8s, 16s, 32s
   chars_per_token: 4        # rough estimate used BEFORE a call to check the cost cap
@@ -43,9 +56,28 @@ llm:
     base_url_env: LLM_BASE_URL            # set in .env; default is OpenAI's address below
     default_base_url: https://api.openai.com/v1
     max_tokens_field: max_tokens          # some newer services want "max_completion_tokens"
-  # Extra settings sent with every request, e.g. {temperature: 0}. Left empty on purpose:
-  # some newer models reject a temperature setting.
+  # Extra settings sent with every request (anthropic / openai_compatible), e.g. {temperature: 0}.
+  # Left empty on purpose: some newer models reject a temperature setting.
   request_params: {}
+  # Google Gemini (provider: gemini). The key goes in .env as GEMINI_API_KEY (or GOOGLE_API_KEY).
+  gemini:
+    base_url: https://generativelanguage.googleapis.com/v1beta
+    # Merged into every Gemini request.
+    generation_config: {}
+    # Merged on top, for one model. THINKING: Gemini models "think" before answering; thinking tokens are billed and use
+    # up maxOutputTokens (they can cut our JSON answer off). Which setting turns it down DIFFERS PER MODEL, found by
+    # testing: Flash-Lite accepts thinkingLevel "minimal" but rejects thinkingBudget 0 (HTTP 400 "invalid argument"),
+    # Flash accepts thinkingBudget 0. A model not listed here gets Google's default thinking. If you switch models and
+    # python -m llm.check shows HTTP 400, try one of these two settings here.
+    model_generation_config:
+      gemini-3.5-flash-lite: {thinkingConfig: {thinkingLevel: minimal}}
+      gemini-3.5-flash:      {thinkingConfig: {thinkingBudget: 0}}
+      gemini-3.6-flash:      {thinkingConfig: {thinkingBudget: 0}}
+    # Jobs whose answer must be JSON: Gemini is asked for JSON output (not used for plain-text summaries).
+    json_tasks: [extract, relevance, opening_phrase, split_notices]
+  # Gemini through Google's OpenAI-compatible address instead (provider: openai_compatible): set in .env
+  #   LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai   LLM_API_KEY=<your Gemini key>
+  # and put Gemini model names under models.openai_compatible above.
 
 # ---- Reader settings (used from step b on) ----
 reader:
