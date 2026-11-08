@@ -10,26 +10,80 @@
     "headline": "Find owners in financial trouble before the broker network does.",
     "body": "Bloomfield lends on and buys commercial property anywhere in the U.S. (not office). A bank has strict limits on how it can help a struggling borrower; Bloomfield has few. Reaching the borrower first means offering a loan that actually fixes the problem.",
     "stats": [
-      {"n": "$200M", "label": "deployed last year"},
-      {"n": "$300M", "label": "target this year"},
-      {"n": "1", "label": "researcher reviews every flag"}
+      {
+        "n": "$200M",
+        "label": "deployed last year"
+      },
+      {
+        "n": "$300M",
+        "label": "target this year"
+      },
+      {
+        "n": "1",
+        "label": "researcher reviews every flag"
+      }
     ],
     "story": "A developer builds student housing in Ann Arbor. The opening slips from August to November, students sign leases elsewhere, the building sits empty for a year and the developer defaults. Bloomfield noticed because the project website still said \"coming Winter 2026\" after that date had passed."
   },
   "signals": [
-    {"name": "Stale or delayed opening dates", "status": "partial", "note": "Date rules and scoring work; the weekly website checker is not built yet."},
-    {"name": "Construction loans that never converted", "status": "built", "note": "Recorded loans are lined up to see if a permanent loan or release followed."},
-    {"name": "Contractor (mechanic's) liens", "status": "built", "note": "Read from county documents, with the exact source sentence."},
-    {"name": "Foreclosure notices and receiverships", "status": "partial", "note": "Reader works; county sites are manual drop-in until each site is checked."},
-    {"name": "UCC foreclosure sales (WSJ print)", "status": "later", "note": "Always a weekly manual upload; nothing logs in."},
-    {"name": "Ten-X auctions", "status": "later", "note": "Not built yet."},
-    {"name": "Weak loans: DSCR under 1.0x, watchlist, bank nonaccruals", "status": "partial", "note": "Scoring works; the SEC and FFIEC field names still need checking."}
+    {
+      "name": "Stale or delayed opening dates",
+      "status": "partial",
+      "note": "Date rules and scoring work; the weekly website checker is not built yet."
+    },
+    {
+      "name": "Construction loans that never converted",
+      "status": "built",
+      "note": "Recorded loans are lined up to see if a permanent loan or release followed."
+    },
+    {
+      "name": "Contractor (mechanic's) liens",
+      "status": "built",
+      "note": "Read from county documents, with the exact source sentence."
+    },
+    {
+      "name": "Foreclosure notices and receiverships",
+      "status": "partial",
+      "note": "Reader works; county sites are manual drop-in until each site is checked."
+    },
+    {
+      "name": "UCC foreclosure sales (WSJ print)",
+      "status": "later",
+      "note": "Always a weekly manual upload; nothing logs in."
+    },
+    {
+      "name": "Ten-X auctions",
+      "status": "later",
+      "note": "Not built yet."
+    },
+    {
+      "name": "Weak loans: DSCR under 1.0x, watchlist, bank nonaccruals",
+      "status": "partial",
+      "note": "Scoring works; the SEC and FFIEC field names still need checking."
+    }
   ],
   "results": {
-    "tests": {"passing": 309, "note": "They all pass, and none needs the internet or an API key."},
-    "live_reader": {"date": "2026-11-08", "provider": "Google Gemini", "model": "gemini-3.5-flash", "documents": 18, "ok": 15, "review": 3, "failed": 0,
-      "note": "Real model, invented documents. The run stopped at Google's free-key limit (20 requests a day)."},
-    "pipeline": {"documents": 71, "linked": 83, "properties": 24, "hot": 1, "watch": 2},
+    "tests": {
+      "passing": 309,
+      "note": "They all pass, and none needs the internet or an API key."
+    },
+    "live_reader": {
+      "date": "2026-11-08",
+      "provider": "Google Gemini",
+      "model": "gemini-3.5-flash",
+      "documents": 18,
+      "ok": 15,
+      "review": 3,
+      "failed": 0,
+      "note": "Real model, invented documents. The run stopped at Google's free-key limit (20 requests a day)."
+    },
+    "pipeline": {
+      "documents": 71,
+      "linked": 83,
+      "properties": 24,
+      "hot": 1,
+      "watch": 2
+    },
     "accuracy": "Not measured yet. Our labeled test set (about 30 documents, target about 90% of fields correct) is the next test to build."
   },
   "worked": [
@@ -39,18 +93,58 @@
     "Works with Claude, Gemini or an OpenAI-style service, with a spending cap and no private data sent."
   ],
   "weak_spots": [
-    {"what": "Took a city from our instructions, not the document", "detail": "Gemini filled in city and state for a loan modification that has no address. The quote check caught it and sent it to a person.", "status": "Caught"},
-    {"what": "No real Bloomfield data yet", "detail": "Everything on screen is invented. We need a few anonymized deals to test on.", "status": "Need from you"},
-    {"what": "County and court sites are manual drop-in for now", "detail": "Each site's terms of use must be checked before anything is automated. We never log in or get around a CAPTCHA.", "status": "In progress"},
-    {"what": "Some data field names are unchecked", "detail": "SEC loan fields, bank-report codes and CMS dataset IDs could not be checked from our build environment. Each run prints an audit to confirm them.", "status": "Next"},
-    {"what": "AI model names change quickly", "detail": "Google retired the model we first chose. A 30-second self-test now tells us when a name stops working.", "status": "Fixed"},
-    {"what": "The free AI key allows 20 requests a day", "detail": "Enough to test, not enough for a weekly run over many documents. We will need a paid key.", "status": "Open"}
+    {
+      "what": "Took a city from our instructions, not the document",
+      "detail": "Gemini filled in a city for a document with no address. The quote check caught it.",
+      "status": "Caught"
+    },
+    {
+      "what": "No real Bloomfield data yet",
+      "detail": "Everything on screen is invented. We need a few anonymized deals to test on.",
+      "status": "Need from you"
+    },
+    {
+      "what": "County and court sites are manual drop-in for now",
+      "detail": "Each site's terms must be checked first. We never log in or get past a CAPTCHA.",
+      "status": "In progress"
+    },
+    {
+      "what": "Some data field names are unchecked",
+      "detail": "SEC fields, bank-report codes and CMS dataset IDs are unchecked. Each run prints an audit.",
+      "status": "Next"
+    },
+    {
+      "what": "AI model names change quickly",
+      "detail": "Google retired our first model. A 30-second self-test now flags a retired name.",
+      "status": "Fixed"
+    },
+    {
+      "what": "The free AI key allows 20 requests a day",
+      "detail": "Enough to test, not for a weekly run over many documents. We will need a paid key.",
+      "status": "Open"
+    }
   ],
   "asks": [
-    {"ask": "Which states and counties first?", "detail": "We have five samples: Washtenaw MI, Cook IL, Maricopa AZ, Travis TX, Miami-Dade FL.", "by": "On this call"},
-    {"ask": "A few anonymized sample deals", "detail": "Plus the Trepp screen (DSCR under 1.0x) if Bloomfield is happy to share one.", "by": "By Tue, Nov 10"},
-    {"ask": "Which signals would make you pick up the phone?", "detail": "And your size range, property types and markets, so the scoring weights match.", "by": "On this call"},
-    {"ask": "Rules on sending public records to an AI service", "detail": "Anything Bloomfield needs us to avoid, and who should hold the AI account.", "by": "On this call"}
+    {
+      "ask": "Which states and counties first?",
+      "detail": "We have five samples: Washtenaw MI, Cook IL, Maricopa AZ, Travis TX, Miami-Dade FL.",
+      "by": "On this call"
+    },
+    {
+      "ask": "A few anonymized sample deals",
+      "detail": "Plus the Trepp screen (DSCR under 1.0x) if Bloomfield is happy to share one.",
+      "by": "By Tue, Nov 10"
+    },
+    {
+      "ask": "Which signals would make you pick up the phone?",
+      "detail": "And your size range, property types and markets, so the scoring weights match.",
+      "by": "On this call"
+    },
+    {
+      "ask": "Rules on sending public records to an AI service",
+      "detail": "Anything Bloomfield needs us to avoid, and who should hold the AI account.",
+      "by": "On this call"
+    }
   ],
   "ships": {
     "in": [
@@ -67,24 +161,78 @@
     ]
   },
   "next_steps": [
-    {"when": "THIS CALL", "title": "Check-in", "text": "We show the tool and ask our questions."},
-    {"when": "NOV 10", "title": "Finalize", "text": "We send a recap and act on your feedback."},
-    {"when": "NOV 13", "title": "Real data", "text": "All four parts run on real public data."},
-    {"when": "NOV 15", "title": "Full run", "text": "End-to-end test and demo flag chosen."},
-    {"when": "NOV 17", "title": "Present", "text": "We show Bloomfield the working tool."}
+    {
+      "when": "THIS CALL",
+      "title": "Check-in",
+      "text": "We show the tool and ask our questions."
+    },
+    {
+      "when": "NOV 10",
+      "title": "Finalize",
+      "text": "We send a recap and act on your feedback."
+    },
+    {
+      "when": "NOV 13",
+      "title": "Real data",
+      "text": "All four parts run on real public data."
+    },
+    {
+      "when": "NOV 15",
+      "title": "Full run",
+      "text": "End-to-end test and demo flag chosen."
+    },
+    {
+      "when": "NOV 17",
+      "title": "Present",
+      "text": "We show Bloomfield the working tool."
+    }
   ],
   "team": [
-    {"name": "Vishwa Gandhi", "role": "Team lead", "owns": "Data collection foundation and the AI reader"},
-    {"name": "Neel", "role": "Data collection", "owns": "SEC, bank, nursing-home and county collectors"},
-    {"name": "Maahik", "role": "Matching and scoring", "owns": "Linking records and ranking properties"},
-    {"name": "Rex", "role": "Opening-date scout", "owns": "Stale opening check and finance signals"}
+    {
+      "name": "Vishwa Gandhi",
+      "role": "Team lead",
+      "owns": "Data collection foundation and the AI reader"
+    },
+    {
+      "name": "Neel",
+      "role": "Data collection",
+      "owns": "SEC, bank, nursing-home and county collectors"
+    },
+    {
+      "name": "Maahik",
+      "role": "Matching and scoring",
+      "owns": "Linking records and ranking properties"
+    },
+    {
+      "name": "Rex",
+      "role": "Opening-date scout",
+      "owns": "Stale opening check and finance signals"
+    }
   ],
   "agenda": [
-    {"t": "0:00", "what": "Welcome"},
-    {"t": "0:03", "what": "The problem and our build"},
-    {"t": "0:08", "what": "Live demo"},
-    {"t": "0:16", "what": "What's working, what isn't"},
-    {"t": "0:20", "what": "Your feedback"},
-    {"t": "0:27", "what": "What ships Nov 17"}
+    {
+      "t": "0:00",
+      "what": "Welcome"
+    },
+    {
+      "t": "0:03",
+      "what": "The problem and our build"
+    },
+    {
+      "t": "0:08",
+      "what": "Live demo"
+    },
+    {
+      "t": "0:16",
+      "what": "What's working, what isn't"
+    },
+    {
+      "t": "0:20",
+      "what": "Your feedback"
+    },
+    {
+      "t": "0:27",
+      "what": "What ships Nov 17"
+    }
   ]
 }
