@@ -15,7 +15,7 @@ def built(tmp_path_factory):
     """Build the demo once (it runs the real pipeline on fake data in a scratch folder) and load its embedded data."""
     import os
     saved = os.environ.get("BLOOMFIELD_DATA_DIR")
-    os.environ["GEMINI_API_KEY"] = "AIza-SECRET-should-never-appear"
+    os.environ["GEMINI_API_KEY"] = "not-a-real-key-must-never-appear-in-the-page"
     root = tmp_path_factory.mktemp("demo_build")
     out = root / "demo.html"
     try:
@@ -85,7 +85,7 @@ def test_the_page_works_offline_and_loads_nothing_from_the_internet(built):
 
 def test_no_secret_or_real_data_leaks_into_the_page(built):
     html = built["html"]
-    assert "AIza-SECRET" not in html and "API_KEY" not in html
+    assert "not-a-real-key" not in html and "API_KEY" not in html
     assert not re.search(r"AIza[0-9A-Za-z_-]{20,}|sk-[A-Za-z0-9]{20,}", html)
     assert "FAKE" in html and built["embedded"]["summary"]["documents"] == 71
 
