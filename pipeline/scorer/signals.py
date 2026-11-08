@@ -247,10 +247,21 @@ class BankBook:
         except Exception:      # no bank_stats table yet
             pass
         self._names = {rssd: norm_bank(r.get("bank_name") or "") for rssd, r in self.latest.items()}
+        # Part C's decisions (lender_links), when it has run: trusted over our own guess,
+        # including "no match" (rssd_id NULL) and a person's manual answers.
+        self.part_c: dict[str, str | None] = {}
+        try:
+            self.part_c = {n.strip(): r for n, r in con.execute(
+                "SELECT lender_name, rssd_id FROM lender_links").fetchall()}
+        except Exception:      # Part C hasn't run
+            pass
 
     def find(self, lender: str | None, threshold: int) -> dict | None:
         if not lender:
             return None
+        if lender.strip() in self.part_c:
+            rssd = self.part_c[lender.strip()]
+            return self.latest.get(rssd) if rssd else None
         target = norm_bank(lender)
         best, best_score = None, 0
         for rssd, name in self._names.items():
@@ -305,42 +316,56 @@ _DELINQUENT = re.compile(r"(30|60|90|120)\s*\+?\s*(day|dpd)|delinq|default|forec
 def cmbs_signals(p: Property, cfg: dict, as_of: date) -> list[Signal]:
     s = cfg["signals"]
     out = []
-    for ln in p.cmbs_loans:
-        ev = {"evidence_table": "loans", "evidence_id": ln.get("loan_key"),
-              "evidence_date": as_date(ln.get("report_period"))}
-        label = ln.get("deal_name") or "CMBS deal"
-        dscr, occ = ln.get("dscr"), ln.get("occupancy")
-        if dscr is not None and dscr < 1:
-            r = s["cmbs_dscr_below_1"]
-            out.append(Signal("cmbs_dscr_below_1", r["family"], r["points"],
-                              f"DSCR is {dscr:.2f} in {label}: the property doesn't cover its debt payments", **ev))
-        if occ is not None:
-            occ_frac = occ / 100 if occ > 1 else occ
-            r = s["cmbs_low_occupancy"]
-            if occ_frac < r["below"]:
-                out.append(Signal("cmbs_low_occupancy", r["family"], r["points"],
-                                  f"Occupancy is {occ_frac:.0%} in {label}", **ev))
-        if ln.get("watchlist_flag"):
-            r = s["cmbs_watchlist"]
-            out.append(Signal("cmbs_watchlist", r["family"], r["points"],
-                              f"On the servicer's watchlist in {label}", **ev,
-                              quote=ln.get("servicer_commentary")))
-        status = ln.get("payment_status") or ""
-        if status and _DELINQUENT.search(status):
-            r = s["cmbs_delinquent"]
-            out.append(Signal("cmbs_delinquent", r["family"], r["points"],
-                              f"Payment status '{status}' in {label}", **ev))
-        mat = as_date(ln.get("maturity_date"))
-        if mat:
-            balance = ln.get("current_balance")
-            if mat < as_of and (balance is None or balance > 0):
-                r = s["cmbs_past_maturity"]
-                out.append(Signal("cmbs_past_maturity", r["family"], r["points"],
-                                  f"Loan matured {mat} and still shows {money(balance)} outstanding", **ev))
-            elif mat >= as_of and months_between(as_of, mat) <= s["cmbs_maturity_near"]["within_months"]:
-                r = s["cmbs_maturity_near"]
-                out.append(Signal("cmbs_maturity_near", r["family"], r["points"],
-                                  f"Loan of {money(balance)} matures {mat}: refinancing risk", **ev))
+    # One loan reported by two sources (Part C's loan_group_id) counts once: newest report
+    # first, and each warning sign is kept only the first time we see it for that loan.
+    loans = sorted(p.cmbs_loans, key=lambda ln: str(ln.get("report_period") or ""), reverse=True)
+    seen: set[tuple[str, str]] = set()
+    for ln in loans:
+        group = ln.get("loan_group_id") or ln.get("loan_key")
+        for x in _one_cmbs_loan(ln, s, as_of):
+            if (group, x.name) not in seen:
+                seen.add((group, x.name))
+                out.append(x)
+    return out
+
+
+def _one_cmbs_loan(ln: dict, s: dict, as_of: date) -> list[Signal]:
+    out = []
+    ev = {"evidence_table": "loans", "evidence_id": ln.get("loan_key"),
+          "evidence_date": as_date(ln.get("report_period"))}
+    label = ln.get("deal_name") or "CMBS deal"
+    dscr, occ = ln.get("dscr"), ln.get("occupancy")
+    if dscr is not None and dscr < 1:
+        r = s["cmbs_dscr_below_1"]
+        out.append(Signal("cmbs_dscr_below_1", r["family"], r["points"],
+                          f"DSCR is {dscr:.2f} in {label}: the property doesn't cover its debt payments", **ev))
+    if occ is not None:
+        occ_frac = occ / 100 if occ > 1 else occ
+        r = s["cmbs_low_occupancy"]
+        if occ_frac < r["below"]:
+            out.append(Signal("cmbs_low_occupancy", r["family"], r["points"],
+                              f"Occupancy is {occ_frac:.0%} in {label}", **ev))
+    if ln.get("watchlist_flag"):
+        r = s["cmbs_watchlist"]
+        out.append(Signal("cmbs_watchlist", r["family"], r["points"],
+                          f"On the servicer's watchlist in {label}", **ev,
+                          quote=ln.get("servicer_commentary")))
+    status = ln.get("payment_status") or ""
+    if status and _DELINQUENT.search(status):
+        r = s["cmbs_delinquent"]
+        out.append(Signal("cmbs_delinquent", r["family"], r["points"],
+                          f"Payment status '{status}' in {label}", **ev))
+    mat = as_date(ln.get("maturity_date"))
+    if mat:
+        balance = ln.get("current_balance")
+        if mat < as_of and (balance is None or balance > 0):
+            r = s["cmbs_past_maturity"]
+            out.append(Signal("cmbs_past_maturity", r["family"], r["points"],
+                              f"Loan matured {mat} and still shows {money(balance)} outstanding", **ev))
+        elif mat >= as_of and months_between(as_of, mat) <= s["cmbs_maturity_near"]["within_months"]:
+            r = s["cmbs_maturity_near"]
+            out.append(Signal("cmbs_maturity_near", r["family"], r["points"],
+                              f"Loan of {money(balance)} matures {mat}: refinancing risk", **ev))
     return out
 
 
