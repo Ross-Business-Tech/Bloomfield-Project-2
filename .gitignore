@@ -34,3 +34,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Python pipeline (Part D)
+pipeline/data/
+__pycache__/
+.pytest_cache/

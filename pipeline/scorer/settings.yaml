@@ -1,0 +1,73 @@
+# ---------------------------------------------------------------------------
+# settings.yaml - Bloomfield's weights and filters for ranking flags.
+# Change the numbers here instead of changing Python code.
+# Re-run `python -m scorer.rank` after editing to re-score this week's flags.
+# ---------------------------------------------------------------------------
+
+# ---- FILTERS: which flags show up on the ranked list ----------------------
+filters:
+  # Bloomfield buys everything except office. Office is still collected and scored,
+  # just hidden by default (the dashboard has a "show filtered" switch).
+  property_types_excluded: [Office]
+  # Loan size range in dollars. Flags with no known loan size are kept, marked "size unknown".
+  min_loan_size: 5000000
+  max_loan_size: 50000000
+  # Two-letter state codes to keep. Empty list = the whole country.
+  states: []
+
+# ---- HOW DESPERATE THE OWNER IS (0-100) -------------------------------------
+desperation:
+  # Who is pushing. The most serious pusher on a property sets the starting points;
+  # every OTHER kind of pusher on the same property adds half of its weight.
+  who_is_pushing:
+    court_or_tax: 40   # foreclosure, receivership, lis pendens, lender lawsuit, tax delinquency
+    lender: 30         # UCC sale, auction, stuck construction loan, DSCR under 1.0x, watchlist, delinquent
+    contractor: 20     # mechanic's liens
+    market: 10         # stale opening date, missed lease-up
+
+  # Escalation: lien -> lawsuit -> judgment/foreclosure on the same property.
+  escalation_points_per_step: 10
+  escalation_max: 20
+
+  # Time pressure: how close the next hard date is (sale, auction, maturity, next move-in).
+  time_pressure:
+    - { within_days: 30, points: 20 }
+    - { within_days: 60, points: 14 }
+    - { within_days: 90, points: 8 }
+    - { within_days: 180, points: 4 }
+
+  # Stacking: each different kind of signal beyond the first adds points.
+  stacking_points_per_extra_signal: 8
+  stacking_max: 24
+
+  # Options used up: repeated loan extensions, re-listed at auction, opening date slipped again and again.
+  options_used_up_points: 10
+
+# ---- HOW GOOD THE DEAL COULD BE (0-100) -------------------------------------
+deal_quality:
+  starting_points: 40
+  property_type_fit: 15        # property type Bloomfield buys
+  loan_size_fit: 15            # loan inside the size range above
+  temporary_problem: 15        # a delay or a stuck refinance, not a lack of demand
+  permanent_problem: -15       # e.g. occupancy collapsed in a finished building
+  still_off_market: 10         # no public auction or sale notice yet
+  public_sale: -10             # already at auction / public sale, so others can see it
+  fixable_dscr: 5              # DSCR between 0.8x and 1.0x: income is close to covering the loan
+  weak_dscr: -10               # DSCR under 0.6x
+
+# ---- SIGNAL RULES ------------------------------------------------------------
+signals:
+  dscr_below: 1.0
+  construction_loan_years: 3          # if no maturity date is recorded, assume it was due after this long
+  extensions_for_options_used_up: 2
+  bank_nonaccrual_ratio_alert: 0.02   # bank's CRE nonaccrual ratio above 2% = bank under pressure
+  student_move_in: "08-15"            # month-day of the August move-in
+
+# ---- WEEK-OVER-WEEK ------------------------------------------------------------
+changes:
+  score_jump: 10   # a flag "got worse" if its desperation score rose by at least this much
+
+# ---- GOAL ------------------------------------------------------------------------
+goal:
+  annual_deal_volume: 300000000
+  last_year_volume: 200000000
