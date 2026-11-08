@@ -85,6 +85,10 @@
   .pillrow { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 14px; }
   .banner { border-radius: 10px; padding: 10px 14px; margin: 10px 0; font-size: .95rem; } .banner.ok { background: var(--good-bg); color: var(--good); } .banner.review { background: var(--watch-bg); color: var(--watch); }
   .story { background: var(--watch-bg); color: var(--text); border: 1px solid var(--line); border-left: 4px solid var(--watch); border-radius: 10px; padding: 10px 14px; margin: 10px 0; font-size: .93rem; }
+  .execsum { border-left: 4px solid var(--accent); } .execsum p { margin: 6px 0; } .execsum .eyebrow { color: var(--accent); font-weight: 700; letter-spacing: .6px; font-size: .78rem; text-transform: uppercase; }
+  .kfacts { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin: 8px 0; } .kfacts div { background: var(--soft); border-radius: 8px; padding: 6px 10px; } .kfacts b { display: block; font-size: 1.1rem; } .kfacts span { font-size: .78rem; color: var(--muted); }
+  h2.tierhead { margin: 22px 0 8px; font-size: 1.05rem; border-bottom: 2px solid var(--line); padding-bottom: 6px; } h2.tierhead.hot { border-color: var(--hot); } h2.tierhead.watch { border-color: var(--watch); } h2.tierhead .sub { font-weight: 400; font-size: .85rem; }
+  .approach { margin: 14px 0; } .approach .opt { background: var(--soft); border-radius: 8px; padding: 8px 12px; }
   footer { color: var(--muted); font-size: .85rem; margin-top: 30px; }
   .steps { counter-reset: s; padding: 0; list-style: none; } .steps li { counter-increment: s; display: grid; grid-template-columns: 34px 1fr; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
   .steps li::before { content: counter(s); background: var(--accent); color: var(--accent-text); border-radius: 50%; width: 28px; height: 28px; display: grid; place-items: center; font-weight: 700; }
@@ -120,10 +124,10 @@
 </head>
 <body>
 <header class="top"><div class="top-in">
-  <div class="brand">Bloomfield sourcing tool <small>flags for a researcher to review</small></div>
-  <span class="chip" title="Every name, address and number is invented">DEMO · fake data · no API calls</span>
+  <div class="brand">Bloomfield sourcing tool <small>research workflow · distressed-borrower sourcing</small></div>
+  <span class="chip" title="Every name, address and number is invented">SAMPLE DATA · illustrative only</span>
   <div class="top-actions">
-    <button class="go" id="tourbtn" title="A guided tour for the client call">▶ <b>Walk through</b></button>
+    <button class="go" id="tourbtn" title="A guided tour for the client call">▶ <b>Guided walkthrough</b></button>
     <div class="seg" role="group" aria-label="Theme"><button id="th-light" aria-pressed="true">Light</button><button id="th-dark" aria-pressed="false">Dark</button></div>
   </div>
   <nav class="tabs" role="tablist" id="tabs"></nav>
@@ -164,8 +168,16 @@ const SIGNAL_NAMES = {
   mechanics_lien: "Contractor's lien filed", permit_extended: 'Building permit extended', permit_without_co: 'No certificate of occupancy',
   permit_expired: 'Building permit expired', lender_nonaccruals_rising: "Lender's bad loans rising two quarters in a row",
   lender_high_nonaccrual: "Lender has many CRE loans on nonaccrual", cmbs_dscr_below_1: "Property doesn't cover its debt payments (DSCR under 1.0x)",
-  lis_pendens: 'Lawsuit filed against the property (lis pendens)', tax_delinquent: 'Property taxes delinquent'
+  lis_pendens: 'Lawsuit filed against the property (lis pendens)', tax_delinquent: 'Property taxes delinquent',
+  foreclosure_scheduled: 'Foreclosure sale noticed', receiver_appointed: 'Court-appointed receiver', ucc_sale_scheduled: 'UCC sale of ownership interests',
+  listed_for_auction: 'Listed for public auction', lender_lawsuit: 'Lender lawsuit filed', construction_stalled: 'Construction stalled',
+  cmbs_low_occupancy: 'Occupancy below 80%', cmbs_watchlist: 'On the CMBS servicer watchlist', cmbs_delinquent: 'CMBS loan delinquent',
+  cmbs_maturity_near: 'CMBS loan matures within 12 months', cmbs_past_maturity: 'CMBS loan past maturity'
 };
+const TIER = C.tiers || {};
+const tierShort = t => (TIER[t] || {}).label || title(t);
+const tierName = t => (TIER[t] || {}).name || '';
+const tierFull = t => tierShort(t) + (tierName(t) ? ' · ' + tierName(t) : '');
 const signalName = s => SIGNAL_NAMES[s] || title(s);
 
 const state = { tab: 'start', q: '', tier: 'all', office: false, onlyApproved: false, selected: null, reader: 0, tour: -1, notes: false,
@@ -197,20 +209,29 @@ function highlight(text, quotes) {
 }
 
 /* ---------- start here ---------- */
-const SIG_STATUS = { built: ['good', 'built'], partial: ['warn', 'partly built'], later: ['low', 'not yet'] };
+function approachPanel() {
+  const A = C.approach; if (!A) return null; const D = A.decision || {};
+  return h('div', { class: 'card approach', id: 'approach' }, h('h2', { style: 'margin-top:0' }, 'Our approach: explore every route, then focus'), h('p', { class: 'lead', style: 'margin-top:0' }, A.body),
+    h('div', { class: 'grid2' }, (A.options || []).map(o => h('div', { class: 'opt' }, h('b', {}, o.name), h('div', { class: 'sub' }, o.idea)))),
+    h('p', { style: 'margin:12px 0 4px' }, h('b', {}, 'Decision point: '), D.when + '. We will choose between: ' + (D.paths || []).join('  or  ') + '.'),
+    h('div', { class: 'sub' }, 'How we will choose: ' + (D.criteria || []).join('; ') + '.'));
+}
+const SIG_STATUS = { coded: ['good', 'Coded'], in_progress: ['warn', 'In progress'], not_built: ['low', 'Not built yet'] };
 function renderStart(root) {
   const P = C.problem || {};
   root.append(
     h('div', { class: 'hero' }, h('div', { class: 'eyebrow' }, (C.event || {}).client + ' · ' + (C.event || {}).title),
-      h('h1', {}, P.headline), h('p', {}, P.body), h('button', { class: 'go', onclick: () => startTour() }, '▶ ', h('b', {}, 'Start the walkthrough'))),
+      h('h1', {}, P.headline), h('p', {}, P.body), h('button', { class: 'go', onclick: () => startTour() }, '▶ ', h('b', {}, 'Start the guided walkthrough'))),
     h('div', { class: 'tiles' }, (P.stats || []).map(s => h('div', { class: 'stat' }, h('b', {}, s.n), h('span', {}, s.label)))),
     h('div', { class: 'twocol' },
       h('div', {}, h('h2', { style: 'margin-top:0' }, 'Bloomfield\'s own example'), h('div', { class: 'story' }, P.story),
         h('p', { class: 'sub' }, 'Our test case reproduces it with invented data. The ranked list opens on it.'),
-        h('div', { class: 'actions' }, h('button', { class: 'btn on', onclick: () => { state.tab = 'flags'; render(); } }, 'See this week\'s flags'),
-          h('button', { class: 'btn', onclick: () => { state.tab = 'how'; render(); } }, 'How it works'))),
-      h('div', {}, h('h2', { style: 'margin-top:0' }, 'The signals Bloomfield asked for'), h('div', { class: 'card' }, (C.signals || []).map(s => h('div', { class: 'sigrow' },
-        h('span', { class: 'pill ' + SIG_STATUS[s.status][0] }, SIG_STATUS[s.status][1]), h('div', {}, h('b', {}, s.name), h('div', { class: 'sub' }, s.note))))))),
+        h('div', { class: 'actions' }, h('button', { class: 'btn on', onclick: () => { state.tab = 'flags'; render(); } }, 'View flagged properties'),
+          h('button', { class: 'btn', onclick: () => { state.tab = 'how'; render(); } }, 'Methodology'))),
+      h('div', {}, h('h2', { style: 'margin-top:0' }, 'Build status by signal'), h('div', { class: 'card' }, (C.signals || []).map(s => h('div', { class: 'sigrow' },
+        h('span', { class: 'pill ' + SIG_STATUS[s.status][0], style: 'min-width:92px;text-align:center' }, SIG_STATUS[s.status][1]),
+        h('div', {}, h('b', {}, s.name), h('div', { class: 'sub' }, s.built), s.next && h('div', { class: 'sub' }, h('b', {}, 'Next: '), s.next))))))),
+    approachPanel(),
     h('footer', {}, 'A researcher at Bloomfield reviews every flag and decides what is worth a call. The tool never contacts anyone.'));
 }
 
@@ -231,7 +252,7 @@ function flagCard(p, position) {
   const d = state.decisions[p.id];
   return h('button', { class: 'card flag', 'data-prop': p.id, onclick: () => openDetail(p.id), 'aria-label': 'Open ' + p.name }, h('div', { class: 'rank' }, '#' + position),
     h('div', {},
-      h('div', { class: 'flag-head' }, h('span', { class: 'name' }, p.name), h('span', { class: 'pill ' + p.tier }, p.tier),
+      h('div', { class: 'flag-head' }, h('span', { class: 'name' }, p.name), h('span', { class: 'pill ' + p.tier }, tierShort(p.tier)),
         h('span', { class: 'scorebar ' + p.tier, title: 'score' }, h('i', { style: 'width:' + p.score + '%' })), h('span', { class: 'score' }, Math.round(p.score) + '/100'),
         d && d.action && h('span', { class: 'pill ' + (d.action === 'approved' ? 'good' : 'low') + ' decision' }, DECISION_LABEL[d.action])),
       h('div', { class: 'sub' }, [[p.city, p.state].filter(Boolean).join(', '), p.type !== 'unknown' ? title(p.type) : null, p.lender && 'Lender: ' + p.lender,
@@ -241,26 +262,29 @@ function flagCard(p, position) {
 
 function renderFlags(root) {
   const S = DATA.summary, hiddenOffice = DATA.properties.filter(p => p.type === 'office').length;
-  root.append(h('h1', {}, 'This week\'s ranked flags'),
-    h('p', { class: 'lead' }, 'The tool collects public records, reads each one, links them to a property, and scores how much trouble the owner may be in. A researcher decides what to pursue. Everything below is invented sample data, shown as of ' + day(DATA.meta.as_of) + '.'),
+  root.append(h('h1', {}, 'Flagged properties'),
+    h('p', { class: 'lead' }, 'The tool collects public records, reads each one, links them to a property, and scores how much trouble the owner may be in. A researcher decides what to pursue. Properties are grouped into tiers by evidence score. Everything below is invented sample data, shown as of ' + day(DATA.meta.as_of) + '.'),
     h('div', { class: 'tiles' },
-      [[S.documents, 'documents collected'], [S.read, 'documents turned into fields (sample readings; real AI answers are on the AI Reader tab)'], [S.records_linked, 'records linked into ' + S.properties + ' properties'],
-       [S.hot, 'HOT flags'], [S.watch, 'WATCH flags'], [S.match_reviews, 'matches waiting for a person']].map(([n, l]) => h('div', { class: 'tile' }, h('b', {}, n), h('span', {}, l)))));
+      [[S.documents, 'source documents collected'], [S.records_linked, 'records linked into ' + S.properties + ' properties'],
+       [S.hot, 'Tier 1 · Priority review'], [S.watch, 'Tier 2 · Active monitoring'], [money(S.exposure_tier1), 'loan exposure in Tier 1']].map(([n, l]) => h('div', { class: 'tile' }, h('b', {}, n), h('span', {}, l)))));
   const approved = DATA.properties.filter(p => (state.decisions[p.id] || {}).action === 'approved');
   const list = h('div'); const count = h('p', { class: 'sub' });
   const draw = () => {
     list.replaceChildren(); const rows = visibleProperties();
-    rows.forEach((p, i) => list.append(flagCard(p, i + 1)));
+    let last = null;
+    rows.forEach((p, i) => { if (p.tier !== last) { last = p.tier; const n = rows.filter(x => x.tier === p.tier).length;
+      list.append(h('h2', { class: 'tierhead ' + p.tier }, tierFull(p.tier), h('span', { class: 'sub' }, '  ' + n + ' propert' + (n === 1 ? 'y' : 'ies') + ((TIER[p.tier] || {}).blurb ? ' · ' + TIER[p.tier].blurb : '')))); }
+      list.append(flagCard(p, i + 1)); });
     if (!rows.length) list.append(h('div', { class: 'empty' }, 'Nothing matches these filters.'));
     count.textContent = rows.length + ' of ' + DATA.properties.length + ' properties shown' + (!state.office && hiddenOffice ? ' · ' + hiddenOffice + ' office propert' + (hiddenOffice > 1 ? 'ies' : 'y') + ' hidden (Bloomfield does not buy office)' : '');
   };
   root.append(h('div', { class: 'bar' },
     h('input', { type: 'search', placeholder: 'Search property, city, borrower, lender', 'aria-label': 'Search', oninput: e => { state.q = e.target.value; draw(); } }),
-    h('select', { 'aria-label': 'Tier', onchange: e => { state.tier = e.target.value; draw(); } }, ['all', 'hot', 'watch', 'low'].map(t => h('option', { value: t }, t === 'all' ? 'All tiers' : title(t)))),
+    h('select', { 'aria-label': 'Tier', onchange: e => { state.tier = e.target.value; draw(); } }, ['all', 'hot', 'watch', 'low'].map(t => h('option', { value: t }, t === 'all' ? 'All tiers' : tierFull(t)))),
     h('label', { class: 'check' }, h('input', { type: 'checkbox', onchange: e => { state.office = e.target.checked; draw(); } }), 'Show office'),
     h('label', { class: 'check' }, h('input', { type: 'checkbox', onchange: e => { state.onlyApproved = e.target.checked; draw(); } }), 'Only my weekly list (' + approved.length + ')')), count, list);
   draw();
-  root.append(h('footer', {}, 'Scores are the sum of evidence points (weights live in a settings file Bloomfield owns). Click a flag to see every piece of evidence and the exact source sentence.'));
+  root.append(h('footer', {}, 'Scores are the sum of evidence points (weights live in a settings file Bloomfield owns). Click a property to see the executive summary, every piece of evidence and the exact source sentence. Fields on this page come from pre-recorded sample readings; real AI answers are on the AI document reader tab (documents turned into fields (sample readings), not live AI output).'));
 }
 
 /* ---------- detail drawer ---------- */
@@ -300,15 +324,17 @@ function openDetail(id) {
   const set = (action) => { state.decisions[id] = { ...(state.decisions[id] || {}), action: (state.decisions[id] || {}).action === action ? null : action }; saveDecisions(); openDetail(id); render(); };
   const box = h('div', {},
     h('button', { class: 'close', onclick: () => closeAll() }, 'Close'),
-    h('div', { class: 'flag-head' }, h('h2', { style: 'margin:0' }, p.name), h('span', { class: 'pill ' + p.tier }, p.tier), h('span', { class: 'score' }, Math.round(p.score) + '/100')),
+    h('div', { class: 'flag-head' }, h('h2', { style: 'margin:0' }, p.name), h('span', { class: 'pill ' + p.tier }, tierFull(p.tier)), h('span', { class: 'score' }, Math.round(p.score) + '/100')),
     h('p', { class: 'sub' }, [p.address, p.county].filter(Boolean).join(' · ')),
-    p.tier === 'hot' && h('div', { class: 'story' }, 'This is the kind of flag Bloomfield asked for: several independent signals pointing at the same project, found before the broker network would hear about it.'),
-    h('h3', { id: 'd-why' }, 'Why it is flagged'),
+    p.exec_summary && h('div', { class: 'card execsum', id: 'd-summary' }, h('div', { class: 'eyebrow' }, 'Executive summary'),
+      h('div', { class: 'kfacts' }, p.exec_summary.facts.map(f => h('div', {}, h('b', {}, f.label === 'Latest evidence' ? day(f.value) : f.value), h('span', {}, f.label)))),
+      p.exec_summary.paragraphs.map(t => h('p', {}, t)), h('p', { class: 'sub' }, 'Generated from the evidence below. Nothing here is added from outside the records.')),
+    h('h3', { id: 'd-why' }, 'Property details'),
     h('div', { class: 'card' }, h('dl', { class: 'facts' },
       h('dt', {}, 'Owner (borrower)'), h('dd', {}, p.borrower || 'not found'), h('dt', {}, 'Lender'), h('dd', {}, p.lender || 'not found'),
       h('dt', {}, 'Largest loan'), h('dd', {}, money(p.loan_amount)), h('dt', {}, 'Property type'), h('dd', {}, title(p.type)),
       h('dt', {}, 'Parcel'), h('dd', {}, p.parcel || '-'), h('dt', {}, 'Evidence found'), h('dd', {}, (p.signals.length ? p.signals.length + ' pieces' : 'none') + (p.grouped_by === 'part_c' ? ' (records linked by the matcher)' : '')))),
-    h('h3', { id: 'd-evidence' }, 'Evidence (' + p.signals.length + ')'), p.signals.length ? p.signals.map(evidenceCard) : h('p', { class: 'sub' }, 'Nothing suspicious found for this property.'),
+    h('h3', { id: 'd-evidence' }, 'Supporting evidence (' + p.signals.length + ')'), p.signals.length ? p.signals.map(evidenceCard) : h('p', { class: 'sub' }, 'Nothing suspicious found for this property.'),
     p.timeline.length > 0 && [h('h3', { id: 'd-timeline' }, 'Timeline'), h('ol', { class: 'timeline' }, [...p.timeline.map(e => h('li', { class: e.kind === 'good' ? 'good' : '' }, h('time', {}, day(e.date) + (ago(e.date) ? ' · ' + ago(e.date) + ' the demo date' : '')), e.label)),
       h('li', { class: 'today' }, h('time', {}, day(DATA.meta.as_of)), 'Today (demo date)')])],
     p.loans.length > 0 && [h('h3', { id: 'd-loans' }, 'Loan history'), h('div', { class: 'card scroll' }, h('table', {}, h('thead', {}, h('tr', {}, ['Loan', 'Recorded', 'Amount', 'Modified', 'Paid off by permanent loan?', 'Status'].map(x => h('th', {}, x)))),
@@ -373,7 +399,7 @@ function renderResults(root) {
       h('div', { class: 'card' }, h('div', { class: 'sub' }, 'A real AI model reading our sample documents'), h('div', { class: 'big' }, L.ok + ' ', h('small', {}, '/ ' + L.documents + ' read cleanly')),
         h('p', { class: 'sub' }, L.review + ' were sent to a person, and all ' + L.review + ' were right to be. ' + L.failed + ' failed. ' + L.provider + ' (' + L.model + '), ' + day(L.date) + '. ' + L.note)),
       h('div', {}, h('div', { class: 'card', style: 'margin-bottom:10px' }, h('div', { class: 'big' }, T.passing, ' ', h('small', {}, 'automated tests passing')), h('p', { class: 'sub' }, T.note)),
-        h('div', { class: 'card' }, h('div', { class: 'sub' }, 'Whole chain on sample data'), h('p', { style: 'margin:4px 0 0' }, PL.documents + ' documents in, ' + PL.linked + ' records linked into ' + PL.properties + ' properties, ' + PL.hot + ' HOT and ' + PL.watch + ' WATCH flags. The Ann Arbor project ranks first.')))),
+        h('div', { class: 'card' }, h('div', { class: 'sub' }, 'Whole chain on sample data'), h('p', { style: 'margin:4px 0 0' }, PL.documents + ' documents in, ' + PL.linked + ' records linked into ' + PL.properties + ' properties, ' + PL.hot + ' Tier 1 and ' + PL.watch + ' Tier 2 properties. The Ann Arbor project ranks first.')))),
     h('div', { class: 'banner review' }, h('b', {}, 'Accuracy: '), R.accuracy),
     h('h2', {}, 'What worked'), h('div', { class: 'card' }, h('ul', { class: 'tight' }, (C.worked || []).map(w => h('li', {}, w)))),
     h('h2', {}, 'Where it struggled, and what we are doing about it'),
@@ -408,9 +434,12 @@ function renderHow(root) {
     ['Score', 'Each property gets points for each independent warning sign; signals of the same kind are capped.', 'Bloomfield owns the weights, size, geography and property types.'],
     ['Rank', 'Flags with evidence and a plain-English summary, strongest first.', 'The researcher approves, dismisses or edits each flag. The tool never contacts anyone.']];
   const fam = {}; DATA.weights.forEach(w => (fam[w.family] = fam[w.family] || []).push(w));
-  root.append(h('h1', {}, 'How it works, week to week'), h('ol', { class: 'steps' }, steps.map(([t, d, c]) => h('li', {}, h('div', {}, h('b', {}, t), h('div', {}, d), h('div', { class: 'sub' }, 'Control point: ' + c))))),
+  root.append(h('h1', {}, 'Methodology and how it is built'), h('ol', { class: 'steps' }, steps.map(([t, d, c]) => h('li', {}, h('div', {}, h('b', {}, t), h('div', {}, d), h('div', { class: 'sub' }, 'Control point: ' + c))))),
     h('h2', {}, 'What earns points (all editable)'), h('div', { class: 'grid2' }, Object.entries(fam).map(([f, ws]) => h('div', { class: 'card' }, h('b', {}, title(f)),
       h('table', {}, h('tbody', {}, ws.map(w => h('tr', {}, h('td', {}, signalName(w.signal)), h('td', { style: 'text-align:right' }, '+' + w.points))))))))
+    , h('h2', {}, 'How each stage is built'), h('div', { class: 'grid2' }, (C.how_built || []).map(b => h('div', { class: 'card' }, h('div', { class: 'eyebrow', style: 'color:var(--accent);font-weight:700;font-size:.78rem;text-transform:uppercase' }, b.step), h('b', {}, b.title),
+      h('div', { class: 'sub' }, 'Built with: ' + b.stack), h('ul', { class: 'tight' }, (b.built || []).map(x => h('li', {}, x))))))
+    , approachPanel()
     , h('h2', {}, 'This demo'), h('p', { class: 'sub' }, 'Built on ' + DATA.meta.built_at + ' from the real pipeline run on invented data (scoring ' + DATA.meta.scoring_version + '). Re-run with: python -m demo --open'));
 }
 
@@ -424,8 +453,8 @@ function openTop(scrollSel, spotSel) {
 const STEPS = [
   { part: 'Our build', title: 'Bloomfield\'s problem', text: 'Reach struggling borrowers before the broker network does. Bloomfield\'s own example is the Ann Arbor student housing project.', notes: 'Say: $200M deployed last year, $300M target. A bank has strict limits on helping a struggling borrower; Bloomfield has few. The website still said "coming Winter 2026" after the date passed.', go: () => goTab('start') },
   { part: 'Our build', title: 'Every week, five steps', text: 'Collect, read, link, score, rank. A person approves every flag; the tool never contacts anyone.', notes: 'Point at the control point under each step. Bloomfield owns the weights, size, geography and property types.', go: () => goTab('how') },
-  { part: 'Demo', title: 'This week\'s ranked flags', text: 'Documents in, properties out. One HOT flag, two WATCH. Office is hidden because Bloomfield does not buy it.', notes: 'Tick "Show office" to show the filter, then untick. Everything on screen is invented.', go: () => goTab('flags') },
-  { part: 'Demo', title: 'The Ann Arbor project', text: 'Several independent warning signs point at one project, found without any broker.', notes: 'Read the score (100) and the owner, lender and loan.', go: () => openTop('#d-why') },
+  { part: 'Demo', title: 'Tiered flagged properties', text: 'Documents in, properties out. Tier 1 (Priority review) and Tier 2 (Active monitoring) properties, each with its evidence. Office is hidden because Bloomfield does not buy it.', notes: 'Tick "Show office" to show the filter, then untick. Everything on screen is invented.', go: () => goTab('flags') },
+  { part: 'Demo', title: 'The Ann Arbor project', text: 'An executive summary sits above the evidence: who, how much, and which independent records agree.', notes: 'Read the summary first (score 100, Tier 1), then scroll to the evidence. Then open a Tier 2 property to show the same layout at a lower score.', go: () => openTop('#d-summary', '#d-summary') },
   { part: 'Demo', title: 'A construction loan that never converted', text: 'Recorded about 3.5 years ago, modified once, and no permanent loan or release ever followed.', notes: 'A healthy project replaces its construction loan. This one is stuck.', go: () => openTop('[data-signal="construction_loan_no_takeout"]', '[data-signal="construction_loan_no_takeout"]') },
   { part: 'Demo', title: 'Every claim has a source sentence', text: 'The contractor\'s lien, with the exact words highlighted in the county document it was read from.', notes: 'This is how we avoid the AI inventing facts: no quote, no trust.', go: () => { openTop(); setTimeout(() => { const p = DATA.properties.find(x => x.id === topId()); const s = p.signals.find(x => x.signal === 'mechanics_lien'); if (s && s.doc_id) { state.returnTo = p.id; openDoc(s.doc_id, s.quote); } }, 80); } },
   { part: 'Demo', title: 'The stale opening date', text: 'The site still says "coming soon" after the date passed. This is the signal Bloomfield spotted by hand.', notes: 'Show the quote and the months overdue. Student housing that misses August usually loses a full year of rent.', go: () => openTop('[data-signal="stale_opening"]', '[data-signal="stale_opening"]') },
@@ -458,7 +487,7 @@ function endTour() { state.tour = -1; renderTour(); closeAll(); }
 $('#tourbtn').addEventListener('click', () => state.tour >= 0 ? endTour() : startTour());
 
 /* ---------- shell ---------- */
-const TABS = [['start', 'Start here'], ['flags', 'Ranked flags'], ['reader', 'AI Reader'], ['results', 'Test results'], ['sources', 'Data sources'], ['how', 'How it works'], ['ask', 'Feedback & Nov 17']];
+const TABS = [['start', 'Overview'], ['flags', 'Flagged properties'], ['reader', 'AI document reader'], ['results', 'Test results'], ['sources', 'Data sources'], ['how', 'Methodology & build'], ['ask', 'Feedback & Nov 17']];
 function render() {
   const nav = $('#tabs'); nav.replaceChildren(...TABS.map(([k, label]) => h('button', { role: 'tab', 'aria-selected': state.tab === k, onclick: () => { closeAll(); state.tab = k; render(); window.scrollTo(0, 0); } }, label)));
   const main = $('#main'); main.replaceChildren();

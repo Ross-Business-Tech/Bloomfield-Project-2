@@ -27,39 +27,58 @@
   },
   "signals": [
     {
-      "name": "Stale or delayed opening dates",
-      "status": "partial",
-      "note": "Date rules and scoring work; the weekly website checker is not built yet."
-    },
-    {
       "name": "Construction loans that never converted",
-      "status": "built",
-      "note": "Recorded loans are lined up to see if a permanent loan or release followed."
+      "status": "coded",
+      "built": "Loan histories line up each construction loan with any permanent loan or release. A loan with neither after about 30 months is flagged, and each extension adds to the score.",
+      "next": "Run it on real county recorder data."
     },
     {
       "name": "Contractor (mechanic's) liens",
-      "status": "built",
-      "note": "Read from county documents, with the exact source sentence."
+      "status": "coded",
+      "built": "The AI reader pulls the claimant, amount and type of work from the filing with the exact quote. The scorer weights size and recency.",
+      "next": "Feed it real county filings (manual drop-in until each site is checked)."
+    },
+    {
+      "name": "UCC foreclosure sales",
+      "status": "coded",
+      "built": "The reader recognizes UCC sale notices (party, date, collateral) and the scorer weights them 30 points. WSJ pages are a weekly manual upload.",
+      "next": "Automatic splitting of a full newspaper page into separate notices."
+    },
+    {
+      "name": "Stale or delayed opening dates",
+      "status": "in_progress",
+      "built": "Date rules turn phrases like \"Fall 2026\" into a deadline (fully tested), and the scorer flags projects that are overdue and still unopened.",
+      "next": "The weekly website checker and Wayback Machine history (the Scout)."
     },
     {
       "name": "Foreclosure notices and receiverships",
-      "status": "partial",
-      "note": "Reader works; county sites are manual drop-in until each site is checked."
+      "status": "in_progress",
+      "built": "The reader and scorer handle both, and the county collector runs from one settings file per county.",
+      "next": "Check each county site's terms before moving it from manual drop-in to automatic."
     },
     {
-      "name": "UCC foreclosure sales (WSJ print)",
-      "status": "later",
-      "note": "Always a weekly manual upload; nothing logs in."
+      "name": "Weak loans and lender stress",
+      "status": "in_progress",
+      "built": "Loaders for SEC loan filings, the Trepp screen and bank call reports are coded, and scoring passes sample tests.",
+      "next": "Verify SEC field names and bank-report codes against real files."
     },
     {
       "name": "Ten-X auctions",
-      "status": "later",
-      "note": "Not built yet."
+      "status": "not_built",
+      "built": "",
+      "next": "The reader and scorer can already handle an auction listing; the weekly collection from Ten-X is not built. Its terms of use are checked first."
     },
     {
-      "name": "Weak loans: DSCR under 1.0x, watchlist, bank nonaccruals",
-      "status": "partial",
-      "note": "Scoring works; the SEC and FFIEC field names still need checking."
+      "name": "Local news and leasing-site monitoring",
+      "status": "not_built",
+      "built": "",
+      "next": "The Scout that reads approved news, developer and leasing sites each week."
+    },
+    {
+      "name": "Tracking each flag through to a closed deal",
+      "status": "not_built",
+      "built": "",
+      "next": "Recording what happens to every flag, so Bloomfield can measure results against its $300M goal."
     }
   ],
   "results": {
@@ -78,11 +97,11 @@
       "note": "Real model, invented documents. The run stopped at Google's free-key limit (20 requests a day)."
     },
     "pipeline": {
-      "documents": 71,
-      "linked": 83,
-      "properties": 24,
-      "hot": 1,
-      "watch": 2
+      "documents": 120,
+      "linked": 144,
+      "properties": 49,
+      "hot": 10,
+      "watch": 18
     },
     "accuracy": "Not measured yet. Our labeled test set (about 30 documents, target about 90% of fields correct) is the next test to build."
   },
@@ -158,7 +177,8 @@
       "Automatic niche-source scout: leasing sites, local news, Ten-X, WSJ print",
       "Tracking each flag through to a closed deal",
       "Any outreach. Bloomfield handles all of it."
-    ]
+    ],
+    "note": "Final scope is confirmed before Nov 17: every signal, or one signal done exceptionally well."
   },
   "next_steps": [
     {
@@ -178,8 +198,8 @@
     },
     {
       "when": "NOV 15",
-      "title": "Full run",
-      "text": "End-to-end test and demo flag chosen."
+      "title": "Full run and scope",
+      "text": "End-to-end test, then we choose: all signals or one focus."
     },
     {
       "when": "NOV 17",
@@ -233,6 +253,121 @@
     {
       "t": "0:27",
       "what": "What ships Nov 17"
+    }
+  ],
+  "tiers": {
+    "hot": {
+      "label": "Tier 1",
+      "name": "Priority review",
+      "blurb": "Several independent warning signs. Review first."
+    },
+    "watch": {
+      "label": "Tier 2",
+      "name": "Active monitoring",
+      "blurb": "One or two clear warning signs. Watch for change."
+    },
+    "low": {
+      "label": "Tier 3",
+      "name": "Routine",
+      "blurb": "No significant warning signs found."
+    }
+  },
+  "approach": {
+    "headline": "We are exploring every creative route, then narrowing before Nov 17",
+    "body": "Finding distressed borrowers early can be approached from many angles. For now we are building and testing several in parallel. Before the final presentation we will choose: keep the full multi-signal approach, or focus on the one signal that produces the most actionable flags.",
+    "options": [
+      {
+        "name": "Opening-date watch",
+        "idea": "Project websites that still say \"coming soon\" after the date has passed, and dates that keep moving."
+      },
+      {
+        "name": "Construction-loan clock",
+        "idea": "Construction loans with no permanent loan or release recorded after their expected term."
+      },
+      {
+        "name": "Court and lien filings",
+        "idea": "Contractor liens, lis pendens, foreclosure notices and receiverships at the county."
+      },
+      {
+        "name": "Forced and public sales",
+        "idea": "UCC sales of ownership interests (WSJ print notices) and Ten-X auction listings."
+      },
+      {
+        "name": "Lender and CMBS stress",
+        "idea": "Banks with rising commercial real estate nonaccruals, and loans with DSCR under 1.0x or on a servicer watchlist."
+      },
+      {
+        "name": "Creative signals",
+        "idea": "Rent concessions growing, stalled pre-leasing, one sponsor's other projects already flagged, and banks that may sell a troubled note."
+      }
+    ],
+    "decision": {
+      "when": "Before Nov 17 (at the Nov 15 full run)",
+      "criteria": [
+        "Which signal produces flags a researcher would actually act on",
+        "How reliable the data is, and whether the source allows automated access",
+        "Bloomfield's feedback from today's call"
+      ],
+      "paths": [
+        "Keep every signal in one ranked list",
+        "Focus on one signal and make it excellent"
+      ]
+    }
+  },
+  "how_built": [
+    {
+      "step": "Collect",
+      "title": "Public-records collectors",
+      "stack": "Python and a shared DuckDB database",
+      "built": [
+        "Collectors for county courts and recorders, SEC loan filings, bank call reports, CMS data and the Trepp screen",
+        "One settings file per county (all 3,100 are in a registry), plus statewide files",
+        "Polite by design: reads robots.txt, one request every 3 seconds per site, identifies itself, and never logs in or bypasses a CAPTCHA or paywall",
+        "A site that does not allow automation falls back to a manual drop-in folder",
+        "Every file is saved unchanged and fingerprinted (SHA-256), so nothing loads twice and a run can restart"
+      ]
+    },
+    {
+      "step": "Read",
+      "title": "AI document reader",
+      "stack": "Python, schema checks, OCR; works with Claude, Gemini or OpenAI-style services",
+      "built": [
+        "One wrapper for every AI call; the model is a setting, so we can switch providers in minutes",
+        "Fixed instructions and a fixed list of fields; the model only returns structured data",
+        "Every value must carry an exact quote, and the quote is checked against the document",
+        "OCR for scans, saved answers (nothing is paid for twice), a weekly spending cap, and Trepp or Bloomfield material is never sent"
+      ]
+    },
+    {
+      "step": "Link",
+      "title": "Record matcher",
+      "stack": "Python; parcel, address and fuzzy name matching",
+      "built": [
+        "Joins records on parcel number first, then street address, then fuzzy company names",
+        "Builds each property's loan history to see whether a construction loan was ever replaced",
+        "Links lenders to bank call reports and groups a developer's many LLCs",
+        "Uncertain matches go to a review queue instead of being guessed"
+      ]
+    },
+    {
+      "step": "Score",
+      "title": "Scoring and ranking",
+      "stack": "Python; weights in a settings file Bloomfield can edit",
+      "built": [
+        "Points for each independent warning sign, with the weights in one file",
+        "Signals of the same kind are capped so one story cannot inflate a score",
+        "Every score keeps its evidence trail back to the source sentence",
+        "Properties fall into three tiers: priority review, active monitoring and routine"
+      ]
+    },
+    {
+      "step": "Review",
+      "title": "Researcher view",
+      "stack": "Interactive demo page today; full dashboard next",
+      "built": [
+        "Ranked list with an executive summary, evidence with exact quotes, timeline and loan history",
+        "Approve, dismiss or annotate each property; the tool never contacts anyone"
+      ]
     }
   ]
 }

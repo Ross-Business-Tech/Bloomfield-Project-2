@@ -35,6 +35,7 @@ STEPS = [
     ("Create the shared database tables", ["scripts/setup_db.py"]),
     ("Part A: load FAKE collected data (loans, liens, permits, banks)", ["scripts/make_fake_data.py"]),
     ("Part B: the AI Reader's output (pre-recorded sample readings)", ["scripts/make_fake_readings.py"]),
+    ("Part B: more sample flagged properties with their evidence", ["demo/sample_flags.py"]),
     ("Part C: link records about the same property, loan, bank and company", ["-m", "matcher"]),
     ("Part D: score and rank every property", ["-m", "scorer"]),
 ]
@@ -257,6 +258,49 @@ def sources_table() -> list[dict]:
     return rows
 
 
+FAMILY_WORDS = {"construction_loan": "recorded loans", "permits": "building permits", "liens": "contractor liens", "lender": "lender health",
+                "cmbs": "CMBS loan data", "legal": "court and public notices", "opening": "project website checks"}
+
+
+def _tidy(text: str) -> str:
+    text = (text or "").strip().rstrip(".")
+    return text[:1].lower() + text[1:] if text[:1].isupper() and text[1:2].islower() else text
+
+
+def _exec_summary(prop: dict, tier_text: str) -> dict:
+    """A short, factual summary that sits above the evidence. Built only from the evidence rows: nothing is added or guessed."""
+    sigs = sorted(prop["signals"], key=lambda s: -s["counted"])
+    families = sorted({s["family"] for s in sigs}, key=lambda f: -sum(s["counted"] for s in sigs if s["family"] == f))
+    kind = (prop["type"] or "unknown").replace("_", " ")
+    place = ", ".join(x for x in (prop["city"], prop["state"]) if x)
+    who = "; ".join(x for x in (f"borrower {prop['borrower']}" if prop["borrower"] else "", f"lender {prop['lender']}" if prop["lender"] else "") if x)
+    paras = [f"{prop['name']} is a {kind + ' ' if kind != 'unknown' else ''}property in {place or 'an unknown location'}" + (f" ({who})." if who else ".")]
+    if prop.get("loan_amount"):
+        loan = next((l for l in prop["loans"] if l.get("amount")), None)
+        extra = ""
+        if loan and loan.get("months_open") and not loan.get("takeout_date"):
+            extra = f" It was recorded about {loan['months_open'] / 12:.1f} years ago and no permanent loan or payoff has been recorded since."
+        paras.append(f"The largest recorded loan is ${prop['loan_amount'] / 1e6:,.1f}M.{extra}")
+    if sigs:
+        top = "; ".join(_tidy(s["detail"]) for s in sigs[:3])
+        paras.append(f"What the records show: {top}." + (f" {len(sigs) - 3} more indicator(s) are listed below." if len(sigs) > 3 else ""))
+        if len(families) > 1:
+            paras.append(f"These come from {len(families)} separate kinds of public record ({', '.join(FAMILY_WORDS.get(f, f) for f in families)}), "
+                         f"so the picture is corroborated rather than resting on a single filing. Placement: {tier_text}.")
+        else:
+            paras.append(f"Only one kind of record ({FAMILY_WORDS.get(families[0], families[0])}) supports this flag, so it is placed for {tier_text.lower()}.")
+    else:
+        paras.append("No distress indicators were found in the records collected so far.")
+    facts = [{"label": "Score", "value": f"{round(prop['score'])}/100"}, {"label": "Indicators", "value": str(len(sigs))},
+             {"label": "Record types", "value": str(len(families))}]
+    if prop.get("loan_amount"):
+        facts.insert(1, {"label": "Loan exposure", "value": f"${prop['loan_amount'] / 1e6:,.1f}M"})
+    dates = [s["evidence_date"] for s in sigs if s.get("evidence_date")]
+    if dates:
+        facts.append({"label": "Latest evidence", "value": max(dates)})
+    return {"paragraphs": paras, "facts": facts}
+
+
 def export(con, recorded: list[dict]) -> dict:
     """Everything the page shows, as plain data."""
     scores = _rows(con, "SELECT * FROM property_scores ORDER BY score DESC, property_name")
@@ -299,10 +343,15 @@ def export(con, recorded: list[dict]) -> dict:
             "signals": sigs, "timeline": _timeline(sigs, histories, project), "loans": histories, "bank": bank,
             "entity": ents[0] if ents else None, "contact_lookup": lookups[0] if lookups else None,
             "grouped_by": p["grouped_by"]})
+        tinfo = (json.loads(CONTENT.read_text(encoding="utf-8")).get("tiers", {}) if CONTENT.exists() else {}).get(p["tier"], {})
+        tier_text = f"{tinfo.get('label', p['tier'])} ({tinfo.get('name', p['tier'])})"
+        properties[-1]["exec_summary"] = _exec_summary(properties[-1], tier_text)
     tiers = {t: sum(1 for p in scores if p["tier"] == t) for t in ("hot", "watch", "low")}
     count = lambda sql: con.execute(sql).fetchone()[0]  # noqa: E731
     ff = dict(con.execute("SELECT status, count(*) FROM filing_fields GROUP BY 1").fetchall())
-    summary = {
+    exposure = sum(pp["loan_amount"] or 0 for pp in properties if pp["tier"] == "hot")
+    exposure2 = sum(pp["loan_amount"] or 0 for pp in properties if pp["tier"] == "watch")
+    summary = {"exposure_tier1": exposure, "exposure_tier2": exposure2,
         "documents": count("SELECT count(*) FROM raw_files"), "recorded_loans": count("SELECT count(*) FROM recorded_loans"),
         "cmbs_loans": count("SELECT count(*) FROM loans"), "banks": count("SELECT count(DISTINCT rssd_id) FROM bank_stats"),
         "read": count("SELECT count(*) FROM filing_fields"), "read_ok": ff.get("ok", 0), "read_review": ff.get("needs_review", 0),
@@ -357,5 +406,5 @@ def build(out: Path = DEFAULT_OUT, data_dir: Path = DEFAULT_DATA, live_limit: in
         con.close()
     render(data, Path(out))
     log(f"Wrote {out} ({Path(out).stat().st_size / 1024:,.0f} KB): {data['summary']['properties']} properties, "
-        f"{data['summary']['hot']} hot, {len(data['reader'])} recorded AI readings.")
+        f"{data['summary']['hot']} Tier 1, {len(data['reader'])} recorded AI readings.")
     return data

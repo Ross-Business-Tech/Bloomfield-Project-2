@@ -149,42 +149,97 @@ T(s, "MUST NEVER", { x: M + 0.25, y: 4.15, w: 1.6, h: 0.7, fontSize: 16, bold: t
 T(s, "Show a fact it cannot point to in a document, or contact anyone.", { x: M + 1.85, y: 4.15, w: W - 2.1, h: 0.7, fontSize: 15, color: C.background1, valign: "middle", objectName: "Never text" });
 notes(s, "Neel", "Input, AI step, output, human check. The rule we never break: no fact without the sentence it came from, and the tool never contacts anyone. Bloomfield handles all outreach.");
 
-// ================= 6. the signals (progress) =================
+// ================= 6. how it is built (overview) =================
 s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Problem and build" });
-title(s, "+Progress on your signals");
-T(s, "The warning signs you asked for, and where each one stands.", { x: M, y: 1.18, w: W, h: 0.3, fontSize: 14, color: C.accent6, objectName: "Progress intro" });
-content.signals.forEach((sg, i) => {
-  const y = 1.58 + i * 0.49;
-  s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: M, y, w: W, h: 0.44, rectRadius: 0.06, fill: { color: C.background1 }, line: { color: "E3E0D8", width: 0.75 }, objectName: "Signal row " + (i + 1) });
-  T(s, sg.name, { x: M + 0.18, y, w: 5.2, h: 0.44, fontSize: 14, bold: true, color: C.text2, valign: "middle", objectName: "Signal name " + (i + 1) });
-  pill(s, STATUS[sg.status][0], 8.1, y + 0.09, 1.2, STATUS[sg.status][1], "Signal status " + (i + 1));
-});
-notes(s, "Maahik", "Built: construction loans that never converted, contractor liens. Partly built: stale opening dates (the rules and scoring work, the weekly website checker is not built yet), foreclosure notices (county sites are manual drop-in), weak loans (scoring works; some SEC and bank field names still need checking). Not yet: WSJ print notices and Ten-X.");
-
-// ================= 7. five steps =================
-s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Problem and build" });
-title(s, "+Five steps, a person at each");
-[["COLLECT", "Public records, SEC and bank data, and the Trepp screen if you share one.", "A researcher uploads Trepp; nothing pulls on its own."],
- ["READ", "AI turns each document into fields, with the exact quote.", "Doubtful results go to a person."],
- ["LINK", "Join records about the same property, loan, lender and company.", "Unsure matches wait for a person."],
- ["SCORE", "Points for each independent warning sign.", "Bloomfield owns the weights and filters."],
- ["RANK", "Flags with evidence, strongest first.", "The researcher approves or dismisses."]].forEach((st, i) => {
+title(s, "+How it's built: five stages");
+T(s, "One pipeline, five stages. Each stage writes to the same shared database, and a person checks the output.", { x: M, y: 1.18, w: W, h: 0.3, fontSize: 14, color: C.accent6, objectName: "Stages intro" });
+const CTRL = ["A researcher uploads Trepp; nothing pulls on its own.", "Doubtful results go to a person.", "Unsure matches wait for a person.", "Bloomfield owns the weights and filters.", "The researcher approves or dismisses."];
+content.how_built.forEach((st, i) => {
   const x = M + i * 1.78;
-  card(s, x, 1.35, 1.62, 3.4, "Step card " + (i + 1));
-  T(s, String(i + 1), { x: x + 0.15, y: 1.45, w: 0.6, h: 0.6, fontSize: 32, bold: true, color: C.accent4, objectName: "Step number " + (i + 1) });
-  T(s, st[0], { x: x + 0.15, y: 2.05, w: 1.35, h: 0.3, fontSize: 14, bold: true, color: C.text2, charSpacing: 0.5, objectName: "Step name " + (i + 1) });
-  T(s, st[1], { x: x + 0.15, y: 2.4, w: 1.35, h: 1.15, fontSize: 12, color: C.accent6, objectName: "Step text " + (i + 1) });
-  T(s, "A PERSON", { x: x + 0.15, y: 3.62, w: 1.35, h: 0.25, fontSize: 10, bold: true, color: C.text2, charSpacing: 0.5, objectName: "Step control label " + (i + 1) });
-  T(s, st[2], { x: x + 0.15, y: 3.88, w: 1.35, h: 0.8, fontSize: 11, color: C.accent6, objectName: "Step control text " + (i + 1) });
+  card(s, x, 1.65, 1.62, 3.2, "Stage card " + (i + 1));
+  T(s, String(i + 1), { x: x + 0.15, y: 1.72, w: 0.6, h: 0.5, fontSize: 28, bold: true, color: C.accent4, objectName: "Stage number " + (i + 1) });
+  T(s, st.step.toUpperCase(), { x: x + 0.15, y: 2.2, w: 1.35, h: 0.28, fontSize: 13, bold: true, color: C.text2, charSpacing: 0.5, objectName: "Stage name " + (i + 1) });
+  T(s, st.title, { x: x + 0.15, y: 2.5, w: 1.35, h: 0.55, fontSize: 11, bold: true, color: C.accent6, objectName: "Stage title " + (i + 1) });
+  T(s, st.stack, { x: x + 0.15, y: 3.05, w: 1.35, h: 0.95, fontSize: 10, color: C.accent6, objectName: "Stage stack " + (i + 1) });
+  T(s, "A PERSON", { x: x + 0.15, y: 4.0, w: 1.35, h: 0.22, fontSize: 9, bold: true, color: C.text2, charSpacing: 0.5, objectName: "Stage control label " + (i + 1) });
+  T(s, CTRL[i], { x: x + 0.15, y: 4.22, w: 1.35, h: 0.6, fontSize: 9, color: C.accent6, objectName: "Stage control text " + (i + 1) });
 });
-notes(s, "Neel", "Each week the same five steps run, with a Bloomfield control point at each one. We never automate a login, a CAPTCHA, or a paywall: sites that do not allow automated access become a manual drop-in folder.");
+notes(s, "Neel", "Each week the same five stages run, with a Bloomfield control point at each one. Everything is Python writing to one shared database, so each stage can be built, tested and replaced on its own. We never automate a login, a CAPTCHA, or a paywall: sites that do not allow automated access become a manual drop-in folder. The next two slides go one level deeper on each stage.");
+
+// ================= 7-8. how it is built (detail) =================
+const buildCards = (slide, items, y0, h0, fs, label) => {
+  const gap = 0.15, w = (W - gap * (items.length - 1)) / items.length;
+  items.forEach((st, i) => {
+    const x = M + i * (w + gap);
+    card(slide, x, y0, w, h0, label + " card " + (i + 1));
+    T(slide, st.step.toUpperCase() + "  ·  " + st.title, { x: x + 0.15, y: y0 + 0.1, w: w - 0.3, h: 0.32, fontSize: fs + 2, bold: true, color: C.text2, objectName: label + " title " + (i + 1) });
+    T(slide, "Built with: " + st.stack, { x: x + 0.15, y: y0 + 0.45, w: w - 0.3, h: 0.45, fontSize: fs - 1, italic: true, color: C.accent4, objectName: label + " stack " + (i + 1) });
+    slide.addText(st.built.map((t, k, a) => ({ text: t, options: { bullet: true, breakLine: k < a.length - 1, paraSpaceAfter: 4 } })),
+      { isTextBox: true, margin: 0, x: x + 0.15, y: y0 + 0.95, w: w - 0.3, h: h0 - 1.05, fontSize: fs, color: C.accent6, valign: "top", objectName: label + " list " + (i + 1) });
+  });
+};
+s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Problem and build" });
+title(s, "+How it's built: collect and read");
+buildCards(s, content.how_built.slice(0, 2), 1.3, 3.55, 11, "Build A");
+notes(s, "Neel", "Collect: the polite-collector rules matter to a client, so say them out loud: reads robots.txt, one request every three seconds per site, never logs in, never solves a CAPTCHA, never goes around a paywall. Read: the AI never gets to make up a fact. Every value needs an exact quote and we check the quote against the document. One wrapper means we can move between Claude, Gemini and OpenAI-style services by changing a setting.");
+s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Problem and build" });
+title(s, "+How it's built: link, score, review");
+buildCards(s, content.how_built.slice(2), 1.3, 3.55, 11, "Build B");
+notes(s, "Maahik", "Link: the matcher is what turns thousands of separate records into one property with a history. It would rather ask a person than guess. Score: every number lives in a settings file Bloomfield can edit, and signals of the same kind are capped so one story cannot hit 100 by itself. Review: today this is the interactive demo page; the full dashboard is the Nov 17 target.");
+
+// ================= 9. build status board =================
+s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Problem and build" });
+title(s, "+Build status by signal");
+T(s, "Coded means the logic is written and passes our sample tests. It does not yet mean it has run on real Bloomfield data.", { x: M, y: 1.15, w: W, h: 0.4, fontSize: 12, color: C.accent6, objectName: "Board intro" });
+const COLS = [["coded", "CODED", "good"], ["in_progress", "IN PROGRESS", "warn"], ["not_built", "NOT BUILT YET", "low"]];
+COLS.forEach(([key, label, kind], ci) => {
+  const x = M + ci * 3.05, w = 2.9;
+  pill(s, label, x, 1.65, w, kind, "Column pill " + (ci + 1));
+  content.signals.filter(sg => sg.status === key).forEach((sg, ri) => {
+    const y = 2.0 + ri * 1.0;
+    card(s, x, y, w, 0.94, "Board card " + (ci + 1) + "-" + (ri + 1));
+    T(s, sg.name, { x: x + 0.1, y: y + 0.05, w: w - 0.2, h: 0.3, fontSize: 11, bold: true, color: C.text2, objectName: "Board name " + (ci + 1) + "-" + (ri + 1) });
+    T(s, key === "not_built" ? sg.next : sg.built, { x: x + 0.1, y: y + 0.33, w: w - 0.2, h: 0.52, fontSize: 9, color: C.accent6, objectName: "Board text " + (ci + 1) + "-" + (ri + 1) });
+  });
+});
+notes(s, "Maahik", "Coded: construction loans that never converted, contractor liens, and UCC foreclosure sales. For UCC, the reader recognizes the notice and pulls out the secured party, sale date and collateral, and the scorer gives it 30 points, the strongest single signal. What is not automatic yet is splitting a full WSJ page into separate notices: today that page is a weekly manual upload. In progress: stale opening dates, foreclosure and receivership notices, and weak loans. The next slide explains what is done and what is left on each. Not built yet: Ten-X collection, local news and leasing-site monitoring, and tracking each flag to a closed deal.");
+
+// ================= 10. in progress detail =================
+s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Problem and build" });
+title(s, "+In progress: what is built, what is left");
+const inprog = content.signals.filter(sg => sg.status === "in_progress");
+T(s, "WHAT IS BUILT", { x: M + 2.55, y: 1.25, w: 3.2, h: 0.25, fontSize: 10, bold: true, color: C.text2, charSpacing: 0.5, objectName: "Inprog header built" });
+T(s, "WHAT IS LEFT", { x: M + 6.0, y: 1.25, w: 2.4, h: 0.25, fontSize: 10, bold: true, color: C.text2, charSpacing: 0.5, objectName: "Inprog header left" });
+inprog.forEach((sg, i) => {
+  const y = 1.55 + i * 1.07;
+  card(s, M, y, W, 0.98, "Inprog row " + (i + 1));
+  T(s, sg.name, { x: M + 0.15, y, w: 2.3, h: 0.98, fontSize: 13, bold: true, color: C.text2, valign: "middle", objectName: "Inprog name " + (i + 1) });
+  T(s, sg.built, { x: M + 2.55, y, w: 3.25, h: 0.98, fontSize: 11, color: C.accent6, valign: "middle", objectName: "Inprog built " + (i + 1) });
+  T(s, sg.next, { x: M + 6.0, y, w: 2.25, h: 0.98, fontSize: 11, color: C.accent4, valign: "middle", objectName: "Inprog next " + (i + 1) });
+});
+notes(s, "Maahik", "Say plainly that 'in progress' means the analysis half is built and tested, and the remaining work is about getting real data in safely, not about inventing new logic. Stale openings: the date rules and scoring are done; the weekly website checker is the missing piece. Foreclosure notices: reader and scorer done; each county site's terms are checked before it goes from manual to automatic. Weak loans: loaders and scoring done; field names still need verifying against real SEC filings and bank reports.");
+
+// ================= 11. our approach =================
+s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Problem and build" });
+title(s, "+Our approach: explore, then focus");
+T(s, "We are looking at all options and using creative ways to find struggling borrowers early.", { x: M, y: 1.15, w: W, h: 0.3, fontSize: 14, color: C.accent6, objectName: "Approach intro" });
+content.approach.options.forEach((o, i) => {
+  const x = M + (i % 3) * 3.05, y = 1.6 + Math.floor(i / 3) * 1.12;
+  card(s, x, y, 2.9, 1.02, "Option card " + (i + 1));
+  T(s, o.name, { x: x + 0.12, y: y + 0.06, w: 2.66, h: 0.28, fontSize: 12, bold: true, color: C.text2, objectName: "Option name " + (i + 1) });
+  T(s, o.idea, { x: x + 0.12, y: y + 0.36, w: 2.66, h: 0.64, fontSize: 9, color: C.accent6, objectName: "Option idea " + (i + 1) });
+});
+s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: M, y: 3.92, w: W, h: 0.95, rectRadius: 0.08, fill: { color: C.text2 }, line: { color: C.text2, width: 0.5 }, objectName: "Decision band" });
+T(s, "DECISION", { x: M + 0.2, y: 3.92, w: 1.3, h: 0.95, fontSize: 14, bold: true, color: C.accent1, valign: "middle", objectName: "Decision label" });
+T(s, content.approach.decision.when + ": keep every signal in one ranked list, or focus on the one signal that produces the most actionable flags. We choose using your feedback, how reliable each data source is, and which flags a researcher would really act on.", { x: M + 1.55, y: 3.92, w: W - 1.75, h: 0.95, fontSize: 12, color: C.background1, valign: "middle", objectName: "Decision text" });
+notes(s, "Vishwa", "Be open about this: we are deliberately wide right now. We are testing several approaches in parallel because we do not yet know which gives Bloomfield the best flags. Before the final, we choose whether to keep all of them or focus on one and make it excellent. Ask Bloomfield which they would pick today; it is the most useful input we can get.");
 
 // ================= 8. live demo =================
 pres.addSection({ title: "Demo" });
 s = pres.addSlide({ masterName: "DARK", sectionTitle: "Demo" });
 T(s, "+LIVE DEMO", { x: M, y: 0.4, w: 4, h: 0.3, fontSize: 14, bold: true, color: C.accent1, objectName: "Demo kicker" });
 s.addText("WATCH IT FIND THE ANN ARBOR PROJECT", { placeholder: "title" });
-[["01", "RANK", "This week's flags, strongest first. One HOT project stands out."], ["02", "PROVE", "Open it: every claim has the exact sentence it came from."], ["03", "DECIDE", "The researcher adds it to the weekly list, or dismisses it."]].forEach((d, i) => {
+[["01", "RANK", "Tier 1 (Priority review) and Tier 2 (Active monitoring) properties, strongest first."], ["02", "PROVE", "Open one: an executive summary, then every claim with the exact sentence it came from."], ["03", "DECIDE", "The researcher adds it to the weekly list, or dismisses it."]].forEach((d, i) => {
   const x = M + i * 2.95;
   s.addShape(pres.shapes.LINE, { x, y: 2.5, w: 2.7, h: 0, line: { color: "FFCB05", width: 1.5 }, objectName: "Demo rule " + (i + 1) });
   T(s, d[0], { x, y: 2.65, w: 1.2, h: 0.7, fontSize: 40, bold: true, color: C.accent1, objectName: "Demo number " + (i + 1) });
@@ -192,7 +247,7 @@ s.addText("WATCH IT FIND THE ANN ARBOR PROJECT", { placeholder: "title" });
   T(s, d[2], { x, y: 3.8, w: 2.6, h: 0.9, fontSize: 14, color: "C5D2E3", objectName: "Demo text " + (i + 1) });
 });
 T(s, "Sample data only. A recorded walkthrough is ready if the live demo does not load.", { x: M, y: 4.78, w: 8, h: 0.3, fontSize: 11, italic: true, color: "9FB0C5", objectName: "Demo note" });
-notes(s, "Maahik (flags and evidence), Rex (stale opening date), Vishwa (AI Reader)", "Open the demo page and press Walk through. 14 steps follow this agenda; the arrow keys move between them. Tell the client the data is invented. Steps 3 to 9 are the flag walk-through (about 5 minutes); step 10 is the AI Reader. If the page fails, play the screen recording.");
+notes(s, "Maahik (flags and evidence), Rex (stale opening date), Vishwa (AI Reader)", "Open the demo page and press Guided walkthrough. 14 steps follow this agenda; the arrow keys move between them. Tell the client the data is invented. Steps 3 to 9 are the flag walk-through (about 5 minutes); step 10 is the AI Reader. If the page fails, play the screen recording.");
 
 // ================= 9. results =================
 pres.addSection({ title: "What is working" });
@@ -253,6 +308,7 @@ s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 5.7, y: 1.3, w: 3.7, h: 3.2, rect
 T(s, "SAVED FOR PHASE TWO", { x: 5.95, y: 1.45, w: 3.3, h: 0.4, fontSize: 16, bold: true, color: C.text2, objectName: "Later heading" });
 s.addText(content.ships.later.map((t, i, a) => ({ text: t, options: { bullet: true, breakLine: i < a.length - 1, paraSpaceAfter: 6 } })),
   { isTextBox: true, margin: 0, x: 5.95, y: 1.95, w: 3.3, h: 2.45, fontSize: 12, color: C.accent6, valign: "top", objectName: "Later list" });
+T(s, content.ships.note, { x: M, y: 4.68, w: W, h: 0.4, fontSize: 12, italic: true, bold: true, color: C.text2, valign: "middle", objectName: "Scope note" });
 notes(s, "Vishwa", "This is our proposal; ask Bloomfield to confirm or change it. Before hanging up, READ THIS SLIDE BACK and make sure everyone agrees on what ships on November 17.");
 
 // ================= 13. next steps =================

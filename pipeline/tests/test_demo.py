@@ -33,14 +33,14 @@ def built(tmp_path_factory):
 
 def test_the_page_embeds_the_data_and_nothing_is_left_to_fill_in(built):
     assert "/*__DEMO_DATA__*/" not in built["html"]
-    assert built["embedded"]["summary"]["properties"] == 24 and built["out"].stat().st_size > 50_000
+    assert built["embedded"]["summary"]["properties"] == 49 and built["out"].stat().st_size > 50_000
 
 
 def test_the_ann_arbor_project_is_the_top_hot_flag_with_quoted_evidence(built):
     props = built["embedded"]["properties"]
     top = props[0]
     assert top["name"] == "FAKE Maize Row Student Lofts" and top["tier"] == "hot" and top["score"] == 100
-    assert [p["tier"] for p in props].count("hot") == 1 and top["type"] == "student_housing"
+    assert [p["tier"] for p in props].count("hot") == 10 and [p["tier"] for p in props].count("watch") >= 15 and top["type"] == "student_housing"
     names = {s["signal"] for s in top["signals"]}
     assert {"construction_loan_no_takeout", "stale_opening", "mechanics_lien", "lender_nonaccruals_rising"} <= names
     lien = next(s for s in top["signals"] if s["signal"] == "mechanics_lien")
@@ -52,7 +52,7 @@ def test_the_ann_arbor_project_is_the_top_hot_flag_with_quoted_evidence(built):
 
 def test_office_properties_are_identified_so_the_page_can_hide_them(built):
     offices = [p for p in built["embedded"]["properties"] if p["type"] == "office"]
-    assert [p["name"] for p in offices] == ["FAKE Camelback Office Plaza"]
+    assert sorted(p["name"] for p in offices) == ["FAKE Camelback Office Plaza", "FAKE Capitol Square Offices", "FAKE Uptown Office Park"]
     assert 'p.type === \'office\'' in built["html"] and "Show office" in built["html"]     # hidden unless ticked
 
 
@@ -87,7 +87,7 @@ def test_no_secret_or_real_data_leaks_into_the_page(built):
     html = built["html"]
     assert "not-a-real-key" not in html and "API_KEY" not in html
     assert not re.search(r"AIza[0-9A-Za-z_-]{20,}|sk-[A-Za-z0-9]{20,}", html)
-    assert "FAKE" in html and built["embedded"]["summary"]["documents"] == 71
+    assert "FAKE" in html and built["embedded"]["summary"]["documents"] == 120
 
 
 def test_data_cannot_break_out_of_the_script_tag(tmp_path):
@@ -149,7 +149,7 @@ def test_the_walkthrough_covers_every_part_of_the_call_in_order(built):
 def test_the_shared_content_is_embedded_and_honest(built):
     c = built["embedded"]["content"]
     assert c["event"]["client"] == "Bloomfield Capital" and len(c["asks"]) == 4
-    assert {s["status"] for s in c["signals"]} <= {"built", "partial", "later"} and len(c["signals"]) == 7
+    assert {s["status"] for s in c["signals"]} <= {"coded", "in_progress", "not_built"} and len(c["signals"]) == 9
     assert c["results"]["live_reader"]["ok"] + c["results"]["live_reader"]["review"] + c["results"]["live_reader"]["failed"] == \
         c["results"]["live_reader"]["documents"] == 18
     assert "Not measured yet" in c["results"]["accuracy"]                  # we do not claim an accuracy we have not measured
