@@ -6,10 +6,10 @@ Everything on screen is sample data. Nothing real from Bloomfield is used.
 
 | Item | Where |
 |---|---|
-| Slide deck (18 slides, speaker notes on every slide) | `pipeline/demo/deck/Bloomfield_Midpoint_Deck.pptx` (opens in PowerPoint, Keynote and Google Slides) |
+| Slide deck (15 slides, speaker notes on every slide) | `pipeline/demo/deck/Bloomfield_Midpoint_Deck.pptx` (opens in PowerPoint, Keynote and Google Slides) |
 | Working demo with a guided walkthrough | `pipeline/demo/demo.html`, or run `python -m demo --open` from `pipeline/` |
 | Backup screen recording of the walkthrough | `walkthrough.webm` (plays in Chrome, Edge, Firefox, VLC; QuickTime needs VLC) |
-| Test results | Slides 13 and 14, and the "Test results" tab of the demo |
+| Test results | Slides 10 and 11, and the "Test results" tab of the demo |
 
 The deck and the demo read their facts (numbers, asks, scope) from the same file, `pipeline/demo/content.json`. Change it once, then run `python -m demo` and `NODE_PATH=$(npm root -g) node build_deck.cjs` in `pipeline/demo/deck/`.
 
@@ -21,31 +21,29 @@ The deck and the demo read their facts (numbers, asks, scope) from the same file
 - [ ] Rehearse once with a timer. Thirty minutes goes faster than you think.
 - [ ] Show only sample data on screen (it is all sample).
 - [ ] Run the demo on the laptop you will share from. Keep `walkthrough.webm` open in another window as the backup.
-- [ ] Write the questions down and decide who asks which (slide 15 has four).
+- [ ] Write the questions down and decide who asks which (slide 12 has four).
 - [ ] Update the Map Your Build worksheet with anything that changed (it is not in this repo, so this one is by hand).
 
 ## Run sheet
 
 | Time | Slide(s) | Demo step(s) | Suggested presenter |
 |---|---|---|---|
-| 0:00 | 1-2 Welcome, agenda | | Vishwa |
-| 0:03 | 3-5 Problem and what we are building | 1-2 (Start here, Methodology) | Vishwa (problem), Neel (build) |
-| 0:07 | 6-8 How it is built, 9-10 Build status, 11 Our approach | 2 (Methodology & build) | Neel (stages), Maahik (status board: Coded / In progress / Not built yet), Vishwa (approach and the Nov 17 decision) |
-| 0:12 | 12 Live demo | 3-10 (tiered properties, the Ann Arbor summary, source sentence, stale opening, lender, decision, AI reader) | Maahik (tiers, summary, evidence), Rex (stale opening), Vishwa (AI reader) |
-| 0:19 | 13-14 Results, what does not work | 11-12 (Data sources, Test results) | Vishwa (numbers), Neel (gaps) |
-| 0:22 | 15 What we need from you | 13 (Four questions) | Maahik (questions 1, 3), Rex (2, 4). **Neel takes notes.** |
-| 0:27 | 16-18 Nov 17, next steps, questions | 14 (What ships Nov 17) | Vishwa reads it back |
-
-> Thirty minutes is tight with 18 slides. Slides 7-8 and 10 are optional detail: skip them if you are behind, and keep slides 9 and 11.
+| 0:00 | 1-4 Welcome, problem, Bloomfield's example, what we are building | 1 | Vishwa |
+| 0:04 | 5 How it is built, 6 Build status, 7 In progress, 8 Our approach | 2 | Neel (how built), Maahik (status), Vishwa (approach and the Nov 17 decision) |
+| 0:09 | 9 Live demo (8 minutes) | 3-10 | Maahik (tiers, summary, evidence), Rex (stale opening), Vishwa (AI reader) |
+| 0:17 | 10-11 Results, what does not work | 11-12 | Vishwa (numbers), Neel (gaps) |
+| 0:20 | 12 What we need from you (5 minutes) | 13 | Maahik (questions 1, 3), Rex (2, 4). **Neel takes notes.** |
+| 0:25 | 13-15 Nov 17, next steps, questions | 14 | Vishwa reads it back |
+| 0:28 | Buffer | | Two minutes for overruns |
 
 In the demo, press **Guided walkthrough** (top right) and use the arrow keys. **Speaker notes** on the bottom bar are for you; hide them before sharing.
 
 ## During the call
 
-- Show what does not work yet (slide 14). Clients trust teams that know the weak spots.
+- Show what does not work yet (slide 11). Clients trust teams that know the weak spots.
 - Ask more than you defend. If Bloomfield pushes back, write it down and decide as a team afterward.
 - One person takes notes (the demo has a notes box on the last tab).
-- Before you hang up, read slide 16 back: what ships on November 17.
+- Before you hang up, read slide 13 back: what ships on November 17.
 
 ## After the call (Team Lead)
 
@@ -55,7 +53,7 @@ Email Shana before Session 3 (Nov 10):
 >
 > Hi Shana, thank you for your time and feedback today.
 >
-> **What we agreed will ship on Nov 17:** [read back slide 16 and paste the final list]
+> **What we agreed will ship on Nov 17:** [read back slide 13 and paste the final list]
 > **What we're changing because of your feedback:** [from the notes]
 > **What we need from you, and by when:**
 > 1. [states and counties to start with, if not answered on the call]

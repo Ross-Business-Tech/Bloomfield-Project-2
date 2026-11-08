@@ -90,18 +90,6 @@ T(s, "ALL SAMPLE DATA", { x: 7.45, y: 1.7, w: 1.8, h: 0.3, fontSize: 12, bold: t
 T(s, "Everything on screen is invented. No real Bloomfield data is used.", { x: 7.45, y: 2.02, w: 1.8, h: 0.95, fontSize: 12, color: C.background1, objectName: "Sample note text" });
 notes(s, "Vishwa", "Welcome and thank you. 30 minutes: about 8 on the demo and 4 on what works, then most of the call is your feedback. Everything we show is sample data.");
 
-// ================= 2. agenda =================
-s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Welcome" });
-title(s, "+Agenda");
-content.agenda.forEach((a, i) => {
-  const col = i < 3 ? 0 : 1, row = i % 3, x = M + col * 4.5, y = 1.45 + row * 0.95;
-  T(s, "0" + (i + 1), { x, y, w: 0.8, h: 0.7, fontSize: 36, bold: true, color: C.text2, objectName: "Agenda number " + (i + 1) });
-  T(s, a.what, { x: x + 0.85, y: y + 0.08, w: 2.6, h: 0.6, fontSize: 18, color: C.text2, valign: "middle", objectName: "Agenda item " + (i + 1) });
-  T(s, a.t, { x: x + 3.4, y: y + 0.08, w: 0.6, h: 0.6, fontSize: 12, color: C.accent6, valign: "middle", align: "right", objectName: "Agenda time " + (i + 1) });
-});
-T(s, "Almost half the call goes to the demo and your feedback.", { x: M, y: 4.45, w: W, h: 0.4, fontSize: 14, italic: true, color: C.accent6, objectName: "Agenda note" });
-notes(s, "Vishwa", "Walk the agenda in 30 seconds. We will ask for your feedback throughout, not just at the end.");
-
 // ================= 3. the problem =================
 pres.addSection({ title: "Problem and build" });
 s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Problem and build" });
@@ -164,28 +152,7 @@ content.how_built.forEach((st, i) => {
   T(s, "A PERSON", { x: x + 0.15, y: 4.0, w: 1.35, h: 0.22, fontSize: 9, bold: true, color: C.text2, charSpacing: 0.5, objectName: "Stage control label " + (i + 1) });
   T(s, CTRL[i], { x: x + 0.15, y: 4.22, w: 1.35, h: 0.6, fontSize: 9, color: C.accent6, objectName: "Stage control text " + (i + 1) });
 });
-notes(s, "Neel", "Each week the same five stages run, with a Bloomfield control point at each one. Everything is Python writing to one shared database, so each stage can be built, tested and replaced on its own. We never automate a login, a CAPTCHA, or a paywall: sites that do not allow automated access become a manual drop-in folder. The next two slides go one level deeper on each stage.");
-
-// ================= 7-8. how it is built (detail) =================
-const buildCards = (slide, items, y0, h0, fs, label) => {
-  const gap = 0.15, w = (W - gap * (items.length - 1)) / items.length;
-  items.forEach((st, i) => {
-    const x = M + i * (w + gap);
-    card(slide, x, y0, w, h0, label + " card " + (i + 1));
-    T(slide, st.step.toUpperCase() + "  ·  " + st.title, { x: x + 0.15, y: y0 + 0.1, w: w - 0.3, h: 0.32, fontSize: fs + 2, bold: true, color: C.text2, objectName: label + " title " + (i + 1) });
-    T(slide, "Built with: " + st.stack, { x: x + 0.15, y: y0 + 0.45, w: w - 0.3, h: 0.45, fontSize: fs - 1, italic: true, color: C.accent4, objectName: label + " stack " + (i + 1) });
-    slide.addText(st.built.map((t, k, a) => ({ text: t, options: { bullet: true, breakLine: k < a.length - 1, paraSpaceAfter: 4 } })),
-      { isTextBox: true, margin: 0, x: x + 0.15, y: y0 + 0.95, w: w - 0.3, h: h0 - 1.05, fontSize: fs, color: C.accent6, valign: "top", objectName: label + " list " + (i + 1) });
-  });
-};
-s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Problem and build" });
-title(s, "+How it's built: collect and read");
-buildCards(s, content.how_built.slice(0, 2), 1.3, 3.55, 11, "Build A");
-notes(s, "Neel", "Collect: the polite-collector rules matter to a client, so say them out loud: reads robots.txt, one request every three seconds per site, never logs in, never solves a CAPTCHA, never goes around a paywall. Read: the AI never gets to make up a fact. Every value needs an exact quote and we check the quote against the document. One wrapper means we can move between Claude, Gemini and OpenAI-style services by changing a setting.");
-s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Problem and build" });
-title(s, "+How it's built: link, score, review");
-buildCards(s, content.how_built.slice(2), 1.3, 3.55, 11, "Build B");
-notes(s, "Maahik", "Link: the matcher is what turns thousands of separate records into one property with a history. It would rather ask a person than guess. Score: every number lives in a settings file Bloomfield can edit, and signals of the same kind are capped so one story cannot hit 100 by itself. Review: today this is the interactive demo page; the full dashboard is the Nov 17 target.");
+notes(s, "Neel", "Each week the same five stages run, with a Bloomfield control point at each one. Everything is Python writing to one shared database, so each stage can be built, tested and replaced on its own. We never automate a login, a CAPTCHA, or a paywall: sites that do not allow automated access become a manual drop-in folder. Detail if asked: Collect follows robots.txt, one request every three seconds per site, never logs in or solves a CAPTCHA. Read: one wrapper for Claude, Gemini or OpenAI-style services, every value needs an exact quote checked against the document, saved answers and a weekly spending cap. Link: parcel, then address, then fuzzy names, and unsure matches go to a person. Score: every number is in a settings file Bloomfield can edit, and signals of one kind are capped. The demo has a Methodology tab with the full list.");
 
 // ================= 9. build status board =================
 s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Problem and build" });
