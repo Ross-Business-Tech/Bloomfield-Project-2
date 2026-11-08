@@ -1,0 +1,88 @@
+# ---------------------------------------------------------------------------
+# state_sources.yaml - sources for collectors/state.py: CMS nursing home data, and state licensing /
+# enforcement actions for licensed facilities (senior housing, nursing homes, behavioral health, ...).
+# Adding a source = adding an entry here (no new Python).
+#
+# kind:
+#   cms     a data.cms.gov Provider Data dataset (the collector looks up the current CSV link)
+#   ckan    a state open-data portal running CKAN (looks up the CSV in a dataset)
+#   csv     a direct link to a CSV file
+#   page    a web page or PDF with no structured download: saved as a license_action file for Part B's reader
+#   manual  nothing to download automatically: a person drops files in data/inbox/state_license/<ST>/_statewide/
+#
+# columns:  licensing_records column -> possible header names (capitals / spacing ignored)
+# distress: rules; a row matching ANY rule gets distress_flag = true and the reasons listed
+#   - {column: [headers], in: [values]}       exact match (case-insensitive)
+#   - {column: [headers], matches: "<regex>"} regex match
+#   - {column: [headers], at_least: <number>} numeric threshold
+#   reason: text stored in distress_reason ({value} is replaced by the cell value)
+#
+# Only sources marked verified_terms: true have had their terms of use checked by a person. Anything
+# else stays enabled: false (manual) until someone checks. THE DATASET IDS AND COLUMN NAMES BELOW ARE
+# UNVERIFIED (the sandbox could not reach these sites): check them on the first real run; the log lists
+# columns it could not find, and an unknown dataset gives a clear error.
+# ---------------------------------------------------------------------------
+
+sources:
+  # ---- CMS (federal; open data, all states) ----
+  - name: cms_nursing_home_provider_info
+    enabled: true
+    verified_terms: true            # public CMS Provider Data Catalog
+    kind: cms
+    dataset_id: "4pq5-n9py"         # "Provider Information" (nursing homes)
+    parse: true                     # also load into licensing_records
+    columns:
+      license_number: ["CMS Certification Number (CCN)", "Federal Provider Number", "CCN"]
+      facility_name:  ["Provider Name"]
+      legal_name:     ["Legal Business Name"]
+      facility_type:  ["Provider Type"]
+      address:        ["Provider Address"]
+      city:           ["City/Town", "Provider City"]
+      state:          ["State", "Provider State"]
+      zip:            ["ZIP Code", "Provider Zip Code"]
+      status:         ["Special Focus Status"]
+      as_of_date:     ["Processing Date"]
+    distress:
+      - {column: ["Special Focus Status"], in: ["SFF", "SFF Candidate"], reason: "Special Focus: {value}"}
+      - {column: ["Abuse Icon"], in: ["Y", "Yes"], reason: "abuse citation"}
+      - {column: ["Total Amount of Fines in Dollars"], at_least: 100000, reason: "fines ${value}"}
+      - {column: ["Number of Payment Denials"], at_least: 1, reason: "{value} payment denial(s)"}
+      - {column: ["Overall Rating"], in: ["1"], reason: "1-star overall rating"}
+
+  - name: cms_nursing_home_health_deficiencies
+    enabled: true
+    verified_terms: true
+    kind: cms
+    dataset_id: "r5ix-sfxw"         # "Health Deficiencies" (UNVERIFIED id; a large file)
+  - name: cms_nursing_home_ownership
+    enabled: true
+    verified_terms: true
+    kind: cms
+    dataset_id: "y2hd-n93e"         # "Ownership" (UNVERIFIED id)
+  - name: cms_nursing_home_penalties
+    enabled: true
+    verified_terms: true
+    kind: cms
+    dataset_id: "g6vv-u9sr"         # "Penalties" (UNVERIFIED id)
+
+  # ---- State licensing / enforcement: the sample states. All manual until a person checks the
+  # agency's page and terms of use, then adds its URL and flips enabled to true. ----
+  - {name: mi_lara_enforcement,   enabled: false, kind: manual, state: MI, notes: "Michigan LARA (licensing and regulatory affairs): disciplinary actions for health facilities and adult foster care. TODO verify URL and terms"}
+  - {name: il_idph_enforcement,   enabled: false, kind: manual, state: IL, notes: "Illinois IDPH nursing home violations / IDFPR discipline. TODO verify URL and terms"}
+  - {name: az_adhs_enforcement,   enabled: false, kind: manual, state: AZ, notes: "Arizona ADHS enforcement actions for licensed facilities. TODO verify URL and terms"}
+  - {name: tx_hhsc_enforcement,   enabled: false, kind: manual, state: TX, notes: "Texas HHSC long-term care / assisted living enforcement. TODO verify URL and terms"}
+  - {name: fl_ahca_enforcement,   enabled: false, kind: manual, state: FL, notes: "Florida AHCA facility enforcement and administrative complaints. TODO verify URL and terms"}
+
+  # Template for a state that publishes a plain CSV link:
+  # - name: example_state_enforcement
+  #   enabled: false
+  #   verified_terms: false
+  #   kind: csv
+  #   state: XX
+  #   url: "https://example.gov/enforcement-actions.csv"
+  #   parse: true
+  #   columns: {license_number: ["License #"], facility_name: ["Facility"], status: ["Action"]}
+  #   distress:
+  #     - {column: ["Action"], matches: "(?i)suspen|revoc", reason: "{value}"}
+  # Template for a state page with no download (saved for the AI reader):
+  # - {name: example_state_page, enabled: false, kind: page, state: XX, url: "https://example.gov/disciplinary-actions"}

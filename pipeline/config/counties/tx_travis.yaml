@@ -1,0 +1,18 @@
+# Travis County, TX. Status: manual_inbox until a person checks the sites below and their terms of use.
+county: Travis County
+state: TX
+fips: "48453"
+status: manual_inbox
+priority: 2
+notes: "Austin (UT). Texas non-judicial foreclosure sale notices are posted with the County Clerk before each monthly (first Tuesday) sale. TODO verify each site below (terms of use, robots.txt, whether a login or CAPTCHA is needed); then switch a source to scrape or open_data_api (see _template.yaml) and set status: configured."
+
+sources:
+  court:
+    access: manual_inbox
+    notes: "Travis County District Clerk civil case search. Not checked yet: a person downloads filings by hand into data/inbox/county_court/TX/<county>/."
+  recorder:
+    access: manual_inbox
+    notes: "Travis County Clerk, official public records search. Not checked yet: drop documents into data/inbox/recorder/TX/<county>/."
+  public_notice:
+    access: manual_inbox
+    notes: "Texas Press Association public notice site and Travis County foreclosure sale postings. Not checked yet: drop notices into data/inbox/public_notice/TX/<county>/."

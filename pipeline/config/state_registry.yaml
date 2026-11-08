@@ -1,0 +1,25 @@
+# ---------------------------------------------------------------------------
+# state_registry.yaml - state business-entity searches used by collectors/state.py to look up LLCs
+# that Part C asks about (rows in the entity_lookup_requests table).
+#
+# mode:
+#   manual_inbox   (the default for every state) a person looks the entity up by hand and drops the result
+#                  in data/inbox/state_license/<ST>/_statewide/ with a sidecar {"doc_category": "business_record"}
+#   open_data_api  the state publishes entity data through an open-data API we may call (fill in the rest)
+#
+# A state not listed here is manual_inbox. Nothing here may log in, solve a CAPTCHA or get around a block.
+# ---------------------------------------------------------------------------
+states:
+  MI:
+    mode: manual_inbox
+    notes: >
+      Michigan LARA business entity search (CSCL). Not confirmed to allow automated access, and search
+      is session based, so treat as manual until a person checks its terms of use. Save the entity
+      detail page (status, registered agent, members) as PDF/HTML.
+
+  # Template for a state with an open-data API (UNVERIFIED example; disabled):
+  # XX:
+  #   mode: open_data_api
+  #   url: "https://data.example.gov/resource/entities.json"
+  #   query_param: "$q"                 # request becomes url?$q=<entity name>
+  #   verified_terms: false

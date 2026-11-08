@@ -1,0 +1,18 @@
+# Cook County, IL. Status: manual_inbox until a person checks the sites below and their terms of use.
+county: Cook County
+state: IL
+fips: "17031"
+status: manual_inbox
+priority: 1
+notes: "Chicago. Cook County publishes open data on a Socrata portal: look for foreclosure / chancery datasets there first. TODO verify each site below (terms of use, robots.txt, whether a login or CAPTCHA is needed); then switch a source to scrape or open_data_api (see _template.yaml) and set status: configured."
+
+sources:
+  court:
+    access: manual_inbox
+    notes: "Clerk of the Circuit Court of Cook County, Chancery Division (mortgage foreclosure and receivership case search). Not checked yet: a person downloads filings by hand into data/inbox/county_court/IL/<county>/."
+  recorder:
+    access: manual_inbox
+    notes: "Cook County Clerk, Recordings Division (formerly Recorder of Deeds). Not checked yet: drop documents into data/inbox/recorder/IL/<county>/."
+  public_notice:
+    access: manual_inbox
+    notes: "Illinois Press Association public notice site and Cook County / Chicago legal newspapers. Not checked yet: drop notices into data/inbox/public_notice/IL/<county>/."

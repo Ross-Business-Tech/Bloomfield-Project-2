@@ -1,0 +1,50 @@
+# ---------------------------------------------------------------------------
+# trepp_columns.yaml - maps column names in Bloomfield's Trepp export to columns in our `loans`
+# table. If Trepp renames a column, add the new header name to the list. No code change needed.
+#
+# Matching ignores capitals, spaces, punctuation and line breaks, so "Current Bal ($)" matches
+# "current bal". The header row is found automatically (the first of the first 25 rows with at
+# least 3 of the names below), so title rows above the table are fine.
+#
+# (Adapted from Neel's trepp_mapping.yaml. Neel's version also read borrower, originator, note
+# rate, origination date and special-servicing columns; our shared loans table has no place for
+# those, so they are not loaded. Ask the team if Part C wants them added.)
+#
+# NOTE: these header names are our best guess at a Trepp loan export. The first time you load
+# Bloomfield's real file, check the warning list: it names every loans column it could NOT find.
+# ---------------------------------------------------------------------------
+
+sheet: 0                 # Excel only: sheet number (0 = first) or name
+
+columns:                 # our loans column: [possible header names in the export]
+  deal_name:            ["Deal Name", "Deal", "Deal ID", "Transaction", "Trust"]
+  loan_id:              ["Loan ID", "Loan Number", "Loan #", "Prospectus Loan ID", "Loan Prospectus ID", "Trepp Loan ID", "Loan Name ID"]
+  property_name:        ["Property Name", "Loan Name", "Property"]
+  property_address:     ["Address", "Property Address", "Street Address"]
+  property_city:        ["City", "Property City"]
+  property_state:       ["State", "Property State", "St"]
+  property_zip:         ["Zip", "Zip Code", "Postal Code", "Property Zip"]
+  property_type:        ["Property Type", "Prop Type", "Property Type Code"]
+  original_balance:     ["Original Balance", "Orig Balance", "Original Loan Amount", "Securitized Balance"]
+  current_balance:      ["Current Balance", "Curr Balance", "Current Bal", "Ending Balance", "Actual Balance"]
+  maturity_date:        ["Maturity Date", "Maturity", "Anticipated Repayment Date", "ARD"]
+  dscr:                 ["DSCR (NOI)", "DSCR", "NOI DSCR", "Most Recent DSCR", "DSCR NOI Most Recent"]
+  occupancy:            ["Occupancy", "Most Recent Occupancy", "Physical Occupancy", "Occ"]
+  payment_status:       ["Payment Status", "Delinquency Status", "Delinquency", "Loan Status"]
+  servicer_name:        ["Master Servicer", "Servicer", "Primary Servicer"]
+  watchlist_flag:       ["Watchlist", "On Watchlist", "Watchlist Flag", "WL Flag"]
+  servicer_commentary:  ["Watchlist Comment", "Watchlist Comments", "Watchlist Reason", "Servicer Commentary", "Comments"]
+  report_period:        ["Distribution Date", "As Of Date", "Reporting Period", "Period", "Remit Date"]
+
+# How to read special columns
+percent_columns: [occupancy]            # 78 or "78%" -> 0.78
+bool_columns: [watchlist_flag]          # Y/N, Yes/No, 1/0 -> true/false
+date_columns: [maturity_date, report_period]
+number_columns: [original_balance, current_balance, dscr]
+
+# A loan needs both to get an ID; rows missing either are skipped and logged.
+required: [deal_name, loan_id]
+
+# The Trepp screen is "every loan with DSCR under 1.0x". A row at or above this is kept,
+# but logged as a warning (the screen may have changed).
+expected_max_dscr: 1.0

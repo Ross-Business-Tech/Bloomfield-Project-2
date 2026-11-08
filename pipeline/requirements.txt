@@ -1,0 +1,16 @@
+duckdb
+requests
+beautifulsoup4
+lxml
+pandas
+openpyxl
+pyyaml
+python-dotenv
+pytest
+pydantic
+pdfplumber
+pytesseract
+pdf2image
+feedparser
+rapidfuzz
+tqdm
