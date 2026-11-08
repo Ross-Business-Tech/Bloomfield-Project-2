@@ -202,7 +202,7 @@ COLS.forEach(([key, label, kind], ci) => {
     T(s, key === "not_built" ? sg.next : sg.built, { x: x + 0.1, y: y + 0.33, w: w - 0.2, h: 0.52, fontSize: 9, color: C.accent6, objectName: "Board text " + (ci + 1) + "-" + (ri + 1) });
   });
 });
-notes(s, "Maahik", "Coded: construction loans that never converted, contractor liens, and UCC foreclosure sales. For UCC, the reader recognizes the notice and pulls out the secured party, sale date and collateral, and the scorer gives it 30 points, the strongest single signal. What is not automatic yet is splitting a full WSJ page into separate notices: today that page is a weekly manual upload. In progress: stale opening dates, foreclosure and receivership notices, and weak loans. The next slide explains what is done and what is left on each. Not built yet: Ten-X collection, local news and leasing-site monitoring, and tracking each flag to a closed deal.");
+notes(s, "Maahik", "Coded: construction loans that never converted, contractor liens, and UCC foreclosure sales. For UCC, the reader recognizes the notice and pulls out the secured party, sale date and collateral, and the scorer gives it 30 points, the strongest single signal. In progress: stale opening dates, foreclosure and receivership notices, and weak loans. The next slide explains what is done and what is left on each. Not built yet: Ten-X collection, local news and leasing-site monitoring, and tracking each flag to a closed deal.");
 
 // ================= 10. in progress detail =================
 s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Problem and build" });

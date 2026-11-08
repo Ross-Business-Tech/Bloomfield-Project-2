@@ -41,8 +41,8 @@
     {
       "name": "UCC foreclosure sales",
       "status": "coded",
-      "built": "The reader recognizes UCC sale notices (party, date, collateral) and the scorer weights them 30 points. WSJ pages are a weekly manual upload.",
-      "next": "Automatic splitting of a full newspaper page into separate notices."
+      "built": "UCC sale notices are coded: the reader pulls out the secured party, sale date and collateral, and the scorer weights them 30 points, our strongest single signal.",
+      "next": "Run it on real UCC notices."
     },
     {
       "name": "Stale or delayed opening dates",
