@@ -26,6 +26,7 @@ const date = (y, m, d) => new Date(y, m, d)
 const ORDINAL = { first: 1, '1st': 1, second: 2, '2nd': 2, third: 3, '3rd': 3, fourth: 4, '4th': 4 }
 
 // Rules are tried in order; the most specific phrase wins.
+// KEEP IN STEP WITH pipeline/scout/seasons.py (the Python version; its tests are in pipeline/tests/test_seasons.py).
 const RULES = [
   {
     re: new RegExp(`\\b${MONTH}\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?,?\\s+${YEAR}`, 'i'),
@@ -49,8 +50,8 @@ const RULES = [
   },
   {
     re: new RegExp(`${YEAR}\\s*[-–/]\\s*(\\d{2,4})\\s+(?:school|academic)\\s+year`, 'i'),
-    toDate: (m) => date(toYear(m[1]), 8, 30),
-    rule: 'A school year is given. Students move in by late August, so we allow until Sept 30.',
+    toDate: (m) => date(toYear(m[1]), 11, 31),
+    rule: 'A school year is given. Students move in by late August (Aug 31 lease-up), so we allow until Dec 31 before calling it late.',
   },
   {
     re: new RegExp(`\\b(?:early|mid|late)?[-\\s]*(spring|summer|fall|autumn|winter)\\s+(?:of\\s+)?${YEAR}`, 'i'),
@@ -58,9 +59,9 @@ const RULES = [
       const y = toYear(m[2])
       const season = m[1].toLowerCase()
       if (season === 'spring') return date(y, 5, 20)
-      if (season === 'summer') return date(y, 8, 22)
+      if (season === 'summer') return date(y, 8, 21)
       if (season === 'winter') return date(y + 1, 2, 20) // Winter 2026 can run into March 2027
-      return date(y, 11, 20) // fall / autumn
+      return date(y, 11, 31) // fall / autumn: student move-in is usually August, so a Fall date can already be late
     },
     rule: 'A season is given, so we allow until the last day of that season. "Winter" runs into March of the next year.',
   },
