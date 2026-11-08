@@ -1,0 +1,131 @@
+# ---------------------------------------------------------------------------
+# scoring.yaml - Part D (the Scorer) settings.
+# Every number the scorer uses lives here. Change points here, not in Python.
+# Bump `version` whenever you change anything so old scores can be told apart.
+# ---------------------------------------------------------------------------
+version: "d-1.0"
+
+# Final score is the sum of signal points, capped at 100.
+max_score: 100
+
+# Tiers shown in the ranked list (score >= threshold).
+tiers:
+  hot: 60        # call this week
+  watch: 30      # keep an eye on it
+  # anything lower is "low"
+
+# Signals older than this many days count for half their points (old news is weaker).
+stale_after_days: 730
+
+# Evidence the Reader marked "needs_review" (a person hasn't checked it yet) counts this much.
+needs_review_factor: 0.75
+
+# Points for each signal. Signals in the same `family` don't stack beyond the family cap,
+# so one property can't hit 100 just from five versions of the same story.
+family_caps:
+  construction_loan: 35
+  permits: 20
+  liens: 20
+  lender: 15
+  cmbs: 35
+  legal: 40
+  opening: 25
+
+signals:
+  # --- recorded loans (Part A recorded_loans) ---
+  construction_loan_no_takeout:
+    family: construction_loan
+    points: 25
+    min_age_months: 30          # construction loans normally take out in 24-36 months
+  construction_loan_modified:
+    family: construction_loan
+    points: 10                  # each modification / extension after the construction loan
+    max_count: 2
+
+  # --- permits and certificates of occupancy (Part B filing_fields) ---
+  permit_extended:
+    family: permits
+    points: 8                   # per extension
+    max_count: 2
+  permit_expired:
+    family: permits
+    points: 12
+  permit_without_co:
+    family: permits
+    points: 8
+    min_age_months: 24          # permit issued this long ago and still no certificate of occupancy
+
+  # --- liens (Part B filing_fields) ---
+  mechanics_lien:
+    family: liens
+    points: 15
+    recent_days: 180            # liens filed within this window get full points, older ones half
+    big_lien_share: 0.02        # lien >= 2% of the loan adds the bonus below
+    big_lien_bonus: 5
+
+  # --- the lender (Part A bank_stats) ---
+  lender_nonaccruals_rising:
+    family: lender
+    points: 10
+  lender_high_nonaccrual:
+    family: lender
+    points: 5
+    ratio: 0.03                 # CRE nonaccrual ratio at or above 3%
+  lender_name_match_threshold: 90   # 0-100 fuzzy match score to link a lender name to a bank
+
+  # --- CMBS loan data (Part A loans: EDGAR + Trepp) ---
+  cmbs_dscr_below_1:
+    family: cmbs
+    points: 15
+  cmbs_low_occupancy:
+    family: cmbs
+    points: 8
+    below: 0.80
+  cmbs_watchlist:
+    family: cmbs
+    points: 8
+  cmbs_delinquent:
+    family: cmbs
+    points: 20
+  cmbs_maturity_near:
+    family: cmbs
+    points: 6
+    within_months: 12
+  cmbs_past_maturity:
+    family: cmbs
+    points: 15
+
+  # --- legal / distress events (Part B filing_fields: filing_type and distress_tags) ---
+  legal_event:
+    family: legal
+    points_by_tag:
+      foreclosure_scheduled: 30
+      receiver_appointed: 30
+      lis_pendens: 30
+      lender_lawsuit: 25
+      ucc_sale_scheduled: 30
+      listed_for_auction: 25
+      maturity_default: 20
+      payment_default: 20
+      special_servicing_transfer: 15
+      tax_delinquent: 10
+      license_suspended: 10
+      license_violation: 5
+      cash_management_triggered: 8
+      major_tenant_leaving: 8
+      occupancy_decline: 6
+      construction_stalled: 15
+
+  # --- the Scout's opening-date tracking (Part B projects) ---
+  stale_opening:
+    family: opening
+    points: 15
+    per_month_overdue: 1        # plus 1 point per month overdue...
+    max_extra: 10               # ...up to 10 extra
+  missed_lease_up:
+    family: opening
+    points: 10
+  opening_date_moved:
+    family: opening
+    points: 4                   # per change of the stated opening date
+    max_count: 2

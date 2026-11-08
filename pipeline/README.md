@@ -152,3 +152,74 @@ Good to know:
 * **Scans:** need Tesseract (`brew install tesseract poppler`). Without it, scanned files are left unread (not marked failed) and picked up next time.
 * **Changing the instructions:** edit `reader/prompt.py` and bump `PROMPT_VERSION`; the reader then re-reads everything.
 * **Spending:** the batch stops with a message when `weekly_cost_cap_usd` or `run_cost_cap_usd` would be passed.
+
+---
+
+# Part D: the Scorer (Maahik)
+
+The **Scorer** gathers everything we know about each property, looks for warning signs, and
+ranks every property from 0 to 100 so Bloomfield knows whom to call first. Every point comes
+with a plain-English reason and a pointer to the record that proves it. No AI, no internet,
+no cost: it only reads the tables Parts A, B and C already filled.
+
+## Try it on the fake data (no API key needed)
+
+```bash
+cd pipeline
+python scripts/setup_db.py
+python scripts/make_fake_data.py        # Part A's fake records
+python scripts/make_fake_readings.py    # pretends Part B's Reader already read them
+python -m scorer                        # score and print the top 15
+python -m scorer --explain "maize row"  # every reason behind one property's score
+python -m scorer --csv                  # also save data/exports/scores-<date>.csv
+python -m scorer --state MI --top 50    # print only Michigan, more rows
+python -m scorer --as-of 2026-06-30     # score as if it were that day
+```
+
+Expected: the fake Ann Arbor student-housing project is #1 (HOT), two fake properties are on
+the WATCH list (an office with a weak CMBS loan, a hotel with a lis pendens), and the 20
+healthy ones score 0.
+
+## What it looks for
+
+| Family (cap) | Warning sign | Comes from |
+|---|---|---|
+| Construction loan (35) | construction loan 30+ months old with no permanent loan or payoff; each modification/extension after it | Part A `recorded_loans` |
+| Permits (20) | permit extended; permit expired; permit 2+ years old with no certificate of occupancy | Part B `filing_fields` |
+| Liens (20) | mechanic's lien (full points if filed in the last 180 days, bonus if it's 2%+ of the loan) | Part B `filing_fields` |
+| Lender (15) | the lender's CRE nonaccruals rose two quarters in a row; nonaccrual ratio 3%+ | Part A `bank_stats` (lender name matched with a strict fuzzy match) |
+| CMBS (35) | DSCR under 1; occupancy under 80%; watchlist; delinquent; past maturity; matures within 12 months | Part A `loans` |
+| Legal (40) | foreclosure, receiver, lis pendens, lender lawsuit, UCC sale, auction, defaults, tax delinquency, license problems... | Part B `filing_fields` (`filing_type` and `distress_tags`) |
+| Opening (25) | the Scout's stale "coming soon" page, missed student move-in, opening date moved | Part B `projects` |
+
+How the points add up:
+* **Caps per family** stop one story being counted five times (e.g. five bad CMBS numbers max out at 35).
+* **One document counts once**, at its strongest tag.
+* **Old events** (legal notices, older than 2 years) count half. **Unchecked evidence** (the Reader's `needs_review`) counts 75%. Failed reads are ignored.
+* Total is capped at 100. **HOT** = 60+, **WATCH** = 30+, otherwise **low**.
+
+All points, caps and thresholds live in `config/scoring.yaml`. Change them there (and bump
+`version`), not in the code.
+
+## The tables it writes
+
+* `property_scores`: one row per property: score, tier, one-line summary, name, address, parcel, borrower, lender, biggest loan, `grouped_by`, `scoring_version`.
+* `score_signals`: every reason: signal name, family, points, points actually counted after caps, sentence, `evidence_table` + `evidence_id` (the exact row/file), date, and the Reader's exact quote when there is one.
+
+Each run replaces both tables, so they always show the latest picture.
+
+## How it decides which records are the same property
+
+* **If Part C (the Matcher) writes `property_links`**, the scorer uses it. Contract:
+  `property_links(property_id TEXT, record_table TEXT, record_id TEXT)`, where `record_table` is
+  `recorded_loans`, `filing_fields`, `loans` or `projects` and `record_id` is that table's key
+  (`record_id`, `file_id`, `loan_key`, `project_id`). Extra columns are fine.
+* **Until then (or for records Part C didn't link)**, a cautious fallback: records belong together
+  when they share a parcel number, or the same street address in the same state
+  ("12 North Main Street" = "12 N. Main St"). No fuzzy name matching: that's Part C's job.
+
+## Tests
+
+```bash
+python -m pytest tests/test_scorer.py
+```

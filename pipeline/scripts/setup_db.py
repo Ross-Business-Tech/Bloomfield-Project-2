@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from collectors.common import config, db  # noqa: E402
 from scout_reader_schema import create_scout_reader_tables  # noqa: E402  (Part B's tables)
+from scorer.schema import create_scorer_tables  # noqa: E402  (Part D's tables)
 
 
 def main() -> None:
@@ -22,6 +23,7 @@ def main() -> None:
 
     con = db.connect(args.db)
     create_scout_reader_tables(con)   # Part B (scout + reader) tables
+    create_scorer_tables(con)         # Part D (scorer) tables
     for folder in (config.raw_dir(), config.inbox_dir(), config.logs_dir()):
         folder.mkdir(parents=True, exist_ok=True)
     tables = [r[0] for r in con.execute("SHOW TABLES").fetchall()]
