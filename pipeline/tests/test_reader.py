@@ -106,3 +106,17 @@ def test_scout_sources_are_accepted_by_part_as_raw_files(bcon):
         r = files.store_file(bcon, f"{src} page".encode(), source=src, doc_category=cat,
                              collector_name="t", state="MI", ext="html")
         assert r.status == "new"
+
+
+def test_loan_kind_and_address_parts_do_not_need_their_own_quote():
+    """Real Gemini output: loan_kind is a category, and city/state/zip come out of the quoted address line."""
+    out = ExtractionOutput.model_validate({
+        "filing_type": "recorded_loan", "loan_kind": "permanent", "property_address": "100 Sample St, Ann Arbor, MI 48104",
+        "property_city": "Ann Arbor", "property_state": "MI", "property_zip": "48104",
+        "quotes": {"property_address": "100 Sample St, Ann Arbor, MI 48104"}})
+    assert fields_missing_quotes(out) == []
+    # ...but a city that the address quote does NOT contain still needs its own quote
+    bad = ExtractionOutput.model_validate({
+        "filing_type": "recorded_loan", "property_address": "100 Sample St", "property_city": "Detroit",
+        "quotes": {"property_address": "100 Sample St"}})
+    assert fields_missing_quotes(bad) == ["property_city"]

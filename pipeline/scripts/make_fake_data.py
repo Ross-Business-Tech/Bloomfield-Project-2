@@ -168,7 +168,7 @@ def make_troubled_project(con) -> None:
     ext1 = issued + timedelta(days=900)
     ext2 = issued + timedelta(days=1280)
     permit = {
-        "permit_number": "FAKE-BLD-2023-0456", "address": address,
+        "document": "BUILDING PERMIT", "permit_number": "FAKE-BLD-2023-0456", "address": address,
         "issue_date": issued.isoformat(), "status": "Active - Extended",
         "expiration_date": ext2.isoformat(), "original_expiration_date": orig_exp.isoformat(),
         "project_description": "New construction, 6-story student housing, 212 beds",
@@ -251,14 +251,14 @@ def make_healthy_properties(con) -> None:
         if n % 5 in (0, 1, 2):
             issued = TODAY - timedelta(days=rng.randint(1000, 1600))
             expires = issued + timedelta(days=540)
-            permit = {"permit_number": f"FAKE-BLD-H{n:02d}", "address": address,
+            permit = {"document": "BUILDING PERMIT", "permit_number": f"FAKE-BLD-H{n:02d}", "address": address,
                       "issue_date": issued.isoformat(), "status": "Finaled",
                       "expiration_date": expires.isoformat(),
                       "project_description": f"{kind} - FAKE", "project_value": amount, "note": "FAKE DATA"}
             add_file(con, f"fake-healthy-{n:02d}-permit", json.dumps(permit), source="permit",
                      category="building_permit", state=state, county=county, city=city,
                      ext="json", record_id=permit["permit_number"])
-            co = {"permit_number": permit["permit_number"], "address": address,
+            co = {"document": "CERTIFICATE OF OCCUPANCY", "permit_number": permit["permit_number"], "address": address,
                   "issue_date": (issued + timedelta(days=480)).isoformat(),
                   "status": "Issued", "note": "FAKE DATA"}
             add_file(con, f"fake-healthy-{n:02d}-co", json.dumps(co), source="permit",

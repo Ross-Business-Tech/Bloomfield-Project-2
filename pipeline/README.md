@@ -79,6 +79,31 @@ collectors below (ported from Neel's version onto this shared design). NOT built
 
 ---
 
+# Demo for a screenshare (no API, no internet)
+
+```bash
+cd pipeline
+python -m demo --open        # builds demo/demo.html in ~5 seconds from the real pipeline on FAKE data, and opens it
+python -m demo --no-build --open   # just open the page that is already built (instant)
+```
+
+Or simply double-click `pipeline/demo/demo.html` (a ready-built copy is committed). It is one self-contained file: it works
+offline, needs no server and no API key, and every name and number in it is invented. `python -m demo --serve` serves it at
+http://localhost:8000 (a phone on the same wifi can open it with your computer's address).
+
+Tabs: **Ranked flags** (click a flag for the evidence, the source document with the exact quote highlighted, the timeline,
+loan history, the lender's health and the researcher's approve/dismiss buttons; "Show office" is off by default because
+Bloomfield does not buy office) · **AI Reader** (real Gemini answers recorded earlier, shown next to the source text with
+the quote checks run on them, including one the checks caught) · **Data sources** (what is automatic, manual or unverified) ·
+**How it works**. Approve/dismiss choices and notes are saved in your browser only.
+
+* The demo runs the real steps in a scratch folder (`data/demo/`, wiped each build): create tables, FAKE collected data,
+  sample readings, `python -m matcher`, `python -m scorer`. It never touches your real database.
+* `python -m demo --live 6` also lets the real AI Reader read the first 6 documents (needs an API key with quota).
+* To record fresh real answers for the Reader tab: `python -m demo.record --data-dir <data folder> --file-ids <fake ids>`.
+
+---
+
 # Part B: the Scout and the Reader
 
 * The **Reader** uses an AI model to turn documents into clean fields (with the exact quote each came from) in the `filing_fields` table.

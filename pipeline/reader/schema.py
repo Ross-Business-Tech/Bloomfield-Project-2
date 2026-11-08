@@ -371,8 +371,11 @@ class FilingRecord(ExtractionOutput):
 
 
 # Fields (other than bookkeeping) that hold a value the AI should back up with a quote.
+# loan_kind is a category worked out from the kind of document ("MORTGAGE" -> permanent), not text to copy.
 QUOTE_EXEMPT_FIELDS = {"filing_type", "property_type", "confidence", "distress_tags", "quotes",
-                       "other_parties", "page_still_unopened"}
+                       "other_parties", "page_still_unopened", "loan_kind"}
+# City, state and zip are normally read from the address line, so the quote for property_address covers them.
+ADDRESS_PARTS = ("property_city", "property_state", "property_zip")
 
 
 def fields_missing_quotes(output: ExtractionOutput) -> list[str]:
@@ -382,8 +385,11 @@ def fields_missing_quotes(output: ExtractionOutput) -> list[str]:
         if name in QUOTE_EXEMPT_FIELDS:
             continue
         val = getattr(output, name)
-        if val not in (None, "", []) and name not in output.quotes:
-            out.append(name)
+        if val in (None, "", []) or name in output.quotes:
+            continue
+        if name in ADDRESS_PARTS and str(val).lower() in output.quotes.get("property_address", "").lower():
+            continue                      # the address quote already shows it
+        out.append(name)
     return out
 
 

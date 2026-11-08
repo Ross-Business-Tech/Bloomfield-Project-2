@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bloomfield Sourcing Tool - Demo</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --panel: #ffffff; --text: #1b2430; --muted: #5d6877; --line: #dde1e7; --soft: #eef1f5;
+    --accent: #1f4f8f; --accent-text: #ffffff;
+    --hot: #b42318; --hot-bg: #fde8e6; --watch: #8a5a00; --watch-bg: #fff1d0; --low: #52606f; --low-bg: #e8ecf1;
+    --good: #1a7f46; --good-bg: #dff3e6; --mark: #ffe58a; --shadow: 0 1px 2px rgba(16, 24, 40, .08), 0 4px 14px rgba(16, 24, 40, .06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12161c; --panel: #1b212a; --text: #e8ecf1; --muted: #9aa6b5; --line: #2c3541; --soft: #232b35;
+      --accent: #6aa5f0; --accent-text: #0d1117;
+      --hot: #ff8f85; --hot-bg: #43201d; --watch: #f1c25b; --watch-bg: #3e3213; --low: #a7b3c2; --low-bg: #2a323d;
+      --good: #6fd29a; --good-bg: #173626; --mark: #6b5a12; --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 16px 64px; }
+  header.top { background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
+  .top-in { max-width: 1180px; margin: 0 auto; padding: 10px 16px; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+  .brand { font-weight: 700; font-size: 1.1rem; letter-spacing: .1px; }
+  .brand small { font-weight: 500; color: var(--muted); margin-left: 6px; }
+  .chip { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: .78rem; font-weight: 600; background: var(--watch-bg); color: var(--watch); }
+  nav.tabs { display: flex; gap: 4px; margin-left: auto; flex-wrap: wrap; }
+  nav.tabs button { border: 0; background: transparent; padding: 8px 12px; border-radius: 8px; color: var(--muted); font-weight: 600; }
+  nav.tabs button[aria-selected="true"] { background: var(--soft); color: var(--text); }
+  h1 { font-size: 1.5rem; margin: 22px 0 4px; } h2 { font-size: 1.15rem; margin: 22px 0 8px; } h3 { font-size: 1rem; margin: 14px 0 6px; }
+  p.lead { color: var(--muted); margin: 0 0 14px; max-width: 70ch; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 14px 0; }
+  .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; box-shadow: var(--shadow); }
+  .tile b { display: block; font-size: 1.6rem; line-height: 1.1; } .tile span { color: var(--muted); font-size: .85rem; }
+  .bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 10px 0 14px; }
+  .bar input[type=search], .bar select { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); font: inherit; }
+  .bar input[type=search] { flex: 1 1 200px; min-width: 0; }
+  label.check { display: flex; gap: 6px; align-items: center; color: var(--muted); font-size: .92rem; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; box-shadow: var(--shadow); }
+  .flag { display: grid; grid-template-columns: 44px 1fr; gap: 12px; margin-bottom: 10px; cursor: pointer; text-align: left; width: 100%; }
+  .flag:hover { border-color: var(--accent); } .flag:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .rank { font-weight: 700; color: var(--muted); font-size: 1.2rem; padding-top: 2px; }
+  .flag-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .flag-head .name { font-weight: 700; font-size: 1.05rem; }
+  .sub { color: var(--muted); font-size: .9rem; }
+  .why { margin: 6px 0 0; font-size: .95rem; }
+  .pill { display: inline-block; padding: 1px 9px; border-radius: 999px; font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; }
+  .pill.hot { background: var(--hot-bg); color: var(--hot); } .pill.watch { background: var(--watch-bg); color: var(--watch); } .pill.low { background: var(--low-bg); color: var(--low); }
+  .pill.good { background: var(--good-bg); color: var(--good); } .pill.bad { background: var(--hot-bg); color: var(--hot); } .pill.warn { background: var(--watch-bg); color: var(--watch); }
+  .scorebar { height: 8px; border-radius: 6px; background: var(--soft); overflow: hidden; min-width: 90px; flex: 0 0 110px; }
+  .scorebar i { display: block; height: 100%; background: var(--low); } .scorebar.hot i { background: var(--hot); } .scorebar.watch i { background: var(--watch); }
+  .score { font-weight: 700; } .decision { margin-left: auto; }
+  .empty { color: var(--muted); text-align: center; padding: 30px; }
+  /* drawer */
+  .scrim { position: fixed; inset: 0; background: rgba(8, 12, 18, .5); z-index: 20; display: none; }
+  .scrim.open { display: block; }
+  .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(760px, 100%); background: var(--bg); z-index: 21; overflow-y: auto; padding: 16px; box-shadow: -8px 0 30px rgba(0,0,0,.25); display: none; }
+  .drawer.open { display: block; }
+  .drawer .close { float: right; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 6px 12px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; } @media (max-width: 640px) { .grid2 { grid-template-columns: 1fr; } .flag { grid-template-columns: 30px 1fr; } }
+  dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; margin: 0; font-size: .93rem; } dl.facts dt { color: var(--muted); } dl.facts dd { margin: 0; }
+  .ev { margin-bottom: 10px; } .ev-top { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .ev-title { font-weight: 700; } .pts { margin-left: auto; font-weight: 700; color: var(--hot); white-space: nowrap; }
+  blockquote.quote { margin: 8px 0 6px; padding: 6px 12px; border-left: 3px solid var(--accent); background: var(--soft); font-size: .92rem; border-radius: 0 8px 8px 0; }
+  .btn { border: 1px solid var(--line); background: var(--panel); padding: 6px 12px; border-radius: 8px; font-size: .9rem; }
+  .btn:hover { border-color: var(--accent); } .btn.on { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .btn.approve.on { background: var(--good); border-color: var(--good); color: #fff; } .btn.dismiss.on { background: var(--low); border-color: var(--low); color: #fff; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+  textarea.note { width: 100%; min-height: 60px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); font: inherit; }
+  ol.timeline { list-style: none; margin: 0; padding: 0 0 0 4px; border-left: 2px solid var(--line); }
+  ol.timeline li { position: relative; padding: 0 0 10px 16px; font-size: .93rem; }
+  ol.timeline li::before { content: ""; position: absolute; left: -7px; top: 6px; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); border: 2px solid var(--bg); }
+  ol.timeline li.today::before { background: var(--hot); } ol.timeline li.good::before { background: var(--good); }
+  ol.timeline time { color: var(--muted); font-size: .82rem; display: block; }
+  table { width: 100%; border-collapse: collapse; font-size: .92rem; } th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: .82rem; text-transform: uppercase; letter-spacing: .3px; }
+  .scroll { overflow-x: auto; }
+  pre.doc { white-space: pre-wrap; word-break: break-word; font: .86rem/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--soft); border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin: 0; max-height: 420px; overflow: auto; }
+  mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 1px; }
+  .pillrow { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 14px; }
+  .banner { border-radius: 10px; padding: 10px 14px; margin: 10px 0; font-size: .95rem; } .banner.ok { background: var(--good-bg); color: var(--good); } .banner.review { background: var(--watch-bg); color: var(--watch); }
+  .story { background: var(--watch-bg); color: var(--text); border: 1px solid var(--line); border-left: 4px solid var(--watch); border-radius: 10px; padding: 10px 14px; margin: 10px 0; font-size: .93rem; }
+  .hidden { display: none !important; }
+  footer { color: var(--muted); font-size: .85rem; margin-top: 30px; }
+  .steps { counter-reset: s; padding: 0; list-style: none; } .steps li { counter-increment: s; display: grid; grid-template-columns: 34px 1fr; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .steps li::before { content: counter(s); background: var(--accent); color: var(--accent-text); border-radius: 50%; width: 28px; height: 28px; display: grid; place-items: center; font-weight: 700; }
+  .spark { display: block; }
+  @media (max-width: 640px) {
+    header.top { position: static; } .brand small { display: none; } h1 { font-size: 1.3rem; }
+    nav.tabs { margin-left: 0; width: 100%; overflow-x: auto; flex-wrap: nowrap; } nav.tabs button { white-space: nowrap; padding: 8px 10px; }
+    .drawer { padding: 12px; } .tile b { font-size: 1.35rem; }
+  }
+</style>
+</head>
+<body>
+<header class="top"><div class="top-in">
+  <div class="brand">Bloomfield sourcing tool <small>flags for a researcher to review</small></div>
+  <span class="chip" title="Every name, address and number is invented">DEMO · fake data · no API calls</span>
+  <nav class="tabs" role="tablist" id="tabs"></nav>
+</div></header>
+
+<main class="wrap" id="main"></main>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-label="Details"></aside>
+
+<script>
+const DATA = /*__DEMO_DATA__*/null;
+
+/* ---------- tiny helpers ---------- */
+const $ = (s, el = document) => el.querySelector(s);
+function h(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k === 'class') e.className = v; else if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else e.setAttribute(k, v === true ? '' : v);
+  }
+  for (const kid of kids.flat(Infinity)) { if (kid == null || kid === false) continue; e.append(kid.nodeType ? kid : document.createTextNode(String(kid))); }
+  return e;
+}
+const money = n => n == null ? '-' : (Math.abs(n) >= 1e6 ? '$' + (n / 1e6).toFixed(1) + 'M' : '$' + Math.round(n).toLocaleString('en-US'));
+const day = iso => iso ? new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '-';
+const pct = x => x == null ? '-' : (x * 100).toFixed(1) + '%';
+const title = s => String(s || '').replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
+function monthsBetween(a, b) { const d = (new Date(b) - new Date(a)) / 86400000 / 30.44; return Math.round(d); }
+function ago(iso) { const m = monthsBetween(iso, DATA.meta.as_of); return m <= 0 ? '' : m < 24 ? m + ' months before' : (m / 12).toFixed(1) + ' years before'; }
+const store = { get(k, d) { try { const v = localStorage.getItem('bloomfield-demo-' + k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
+                set(k, v) { try { localStorage.setItem('bloomfield-demo-' + k, JSON.stringify(v)); } catch (e) { /* storage may be blocked */ } } };
+
+const SIGNAL_NAMES = {
+  construction_loan_no_takeout: 'Construction loan never replaced', construction_loan_modified: 'Construction loan modified or extended',
+  stale_opening: 'Opening date passed, site still says coming soon', missed_lease_up: 'Missed the August student move-in',
+  mechanics_lien: "Contractor's lien filed", permit_extended: 'Building permit extended', permit_without_co: 'No certificate of occupancy',
+  permit_expired: 'Building permit expired', lender_nonaccruals_rising: "Lender's bad loans rising two quarters in a row",
+  lender_high_nonaccrual: "Lender has many CRE loans on nonaccrual", cmbs_dscr_below_1: "Property doesn't cover its debt payments (DSCR under 1.0x)",
+  lis_pendens: 'Lawsuit filed against the property (lis pendens)', tax_delinquent: 'Property taxes delinquent'
+};
+const signalName = s => SIGNAL_NAMES[s] || title(s);
+
+const state = { tab: 'flags', q: '', tier: 'all', office: false, onlyApproved: false, selected: null, reader: 0,
+                decisions: store.get('decisions', {}), matches: store.get('matches', {}) };
+const saveDecisions = () => store.set('decisions', state.decisions);
+
+/* ---------- finding a quote inside a document (ignoring case and extra spaces) ---------- */
+function highlight(text, quotes) {
+  const spans = [];
+  for (const q of quotes.filter(Boolean)) {
+    const words = q.trim().split(/\s+/).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const m = new RegExp(words.join('\\s+'), 'i').exec(text);
+    if (m) spans.push([m.index, m.index + m[0].length]);
+  }
+  spans.sort((a, b) => a[0] - b[0]);
+  const out = []; let pos = 0;
+  for (const [s, e] of spans) { if (s < pos) continue; out.push(text.slice(pos, s)); out.push(h('mark', {}, text.slice(s, e))); pos = e; }
+  out.push(text.slice(pos));
+  return out;
+}
+
+/* ---------- flags tab ---------- */
+function visibleProperties() {
+  const q = state.q.trim().toLowerCase();
+  return DATA.properties.filter(p => {
+    if (!state.office && p.type === 'office') return false;
+    if (state.tier !== 'all' && p.tier !== state.tier) return false;
+    if (state.onlyApproved && (state.decisions[p.id] || {}).action !== 'approved') return false;
+    if (q && ![p.name, p.address, p.city, p.state, p.borrower, p.lender].join(' ').toLowerCase().includes(q)) return false;
+    return true;
+  });
+}
+const DECISION_LABEL = { approved: 'On weekly list', dismissed: 'Dismissed', digging: 'Needs digging' };
+
+function flagCard(p, position) {
+  const d = state.decisions[p.id];
+  return h('button', { class: 'card flag', onclick: () => openDetail(p.id), 'aria-label': 'Open ' + p.name }, h('div', { class: 'rank' }, '#' + position),
+    h('div', {},
+      h('div', { class: 'flag-head' }, h('span', { class: 'name' }, p.name), h('span', { class: 'pill ' + p.tier }, p.tier),
+        h('span', { class: 'scorebar ' + p.tier, title: 'score' }, h('i', { style: 'width:' + p.score + '%' })), h('span', { class: 'score' }, Math.round(p.score) + '/100'),
+        d && h('span', { class: 'pill ' + (d.action === 'approved' ? 'good' : 'low') + ' decision' }, DECISION_LABEL[d.action])),
+      h('div', { class: 'sub' }, [[p.city, p.state].filter(Boolean).join(', '), p.type !== 'unknown' ? title(p.type) : null, p.lender && 'Lender: ' + p.lender,
+        p.loan_amount && 'Loan: ' + money(p.loan_amount)].filter(Boolean).join('  ·  ')),
+      p.signals.length ? h('p', { class: 'why' }, p.signals.slice(0, 3).map(s => signalName(s.signal)).join('  ·  ')) : h('p', { class: 'why sub' }, 'No distress signals found.')));
+}
+
+function renderFlags(root) {
+  const S = DATA.summary, hiddenOffice = DATA.properties.filter(p => p.type === 'office').length;
+  root.append(h('h1', {}, 'This week\'s ranked flags'),
+    h('p', { class: 'lead' }, 'The tool collects public records, reads each one, links them to a property, and scores how much trouble the owner may be in. A researcher decides what to pursue. Everything below is invented sample data, shown as of ' + day(DATA.meta.as_of) + '.'),
+    h('div', { class: 'tiles' },
+      [[S.documents, 'documents collected'], [S.read, 'read by the AI Reader (' + S.read_review + ' need a person)'], [S.records_linked, 'records linked into ' + S.properties + ' properties'],
+       [S.hot, 'HOT flags'], [S.watch, 'WATCH flags'], [S.match_reviews, 'matches waiting for a person']].map(([n, l]) => h('div', { class: 'tile' }, h('b', {}, n), h('span', {}, l)))));
+  const approved = DATA.properties.filter(p => (state.decisions[p.id] || {}).action === 'approved');
+  const list = h('div'); const count = h('p', { class: 'sub' });
+  const draw = () => {
+    list.replaceChildren(); const rows = visibleProperties();
+    rows.forEach((p, i) => list.append(flagCard(p, i + 1)));
+    if (!rows.length) list.append(h('div', { class: 'empty' }, 'Nothing matches these filters.'));
+    count.textContent = rows.length + ' of ' + DATA.properties.length + ' properties shown' + (!state.office && hiddenOffice ? ' · ' + hiddenOffice + ' office propert' + (hiddenOffice > 1 ? 'ies' : 'y') + ' hidden (Bloomfield does not buy office)' : '');
+  };
+  root.append(h('div', { class: 'bar' },
+    h('input', { type: 'search', placeholder: 'Search property, city, borrower, lender', 'aria-label': 'Search', oninput: e => { state.q = e.target.value; draw(); } }),
+    h('select', { 'aria-label': 'Tier', onchange: e => { state.tier = e.target.value; draw(); } }, ['all', 'hot', 'watch', 'low'].map(t => h('option', { value: t }, t === 'all' ? 'All tiers' : title(t)))),
+    h('label', { class: 'check' }, h('input', { type: 'checkbox', onchange: e => { state.office = e.target.checked; draw(); } }), 'Show office'),
+    h('label', { class: 'check' }, h('input', { type: 'checkbox', onchange: e => { state.onlyApproved = e.target.checked; draw(); } }), 'Only my weekly list (' + approved.length + ')')), count, list);
+  draw();
+  root.append(h('footer', {}, 'Scores are the sum of evidence points (weights live in a settings file Bloomfield owns). Click a flag to see every piece of evidence and the exact source sentence.'));
+}
+
+/* ---------- detail drawer ---------- */
+function sparkline(series) {
+  const w = 240, ht = 56, vals = series.map(s => s.cre_nonaccrual_ratio || 0), max = Math.max(...vals, 0.001);
+  const pts = vals.map((v, i) => [vals.length > 1 ? 6 + i * (w - 12) / (vals.length - 1) : w / 2, ht - 8 - (v / max) * (ht - 16)]);
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', `0 0 ${w} ${ht}`); svg.setAttribute('class', 'spark'); svg.setAttribute('width', w); svg.setAttribute('height', ht);
+  svg.setAttribute('role', 'img'); svg.setAttribute('aria-label', 'CRE nonaccrual ratio by quarter: ' + vals.map(pct).join(', '));
+  const line = document.createElementNS(svg.namespaceURI, 'polyline');
+  line.setAttribute('points', pts.map(p => p.join(',')).join(' ')); line.setAttribute('fill', 'none'); line.setAttribute('stroke', 'var(--hot)'); line.setAttribute('stroke-width', '2.5');
+  svg.append(line);
+  pts.forEach(p => { const c = document.createElementNS(svg.namespaceURI, 'circle'); c.setAttribute('cx', p[0]); c.setAttribute('cy', p[1]); c.setAttribute('r', 3); c.setAttribute('fill', 'var(--hot)'); svg.append(c); });
+  return svg;
+}
+
+function openDoc(docId, quote) {
+  const doc = DATA.documents[docId]; if (!doc) return;
+  const back = state.returnTo;
+  const box = h('div', {}, h('button', { class: 'close', onclick: () => back ? openDetail(back) : closeAll() }, back ? '← Back' : 'Close'), h('h2', {}, doc.title), h('p', { class: 'sub' }, [doc.id, doc.where].filter(Boolean).join(' · ')),
+    quote && h('p', { class: 'sub' }, 'The highlighted words are the exact quote the evidence came from.'), h('pre', { class: 'doc' }, highlight(doc.text, [quote])));
+  show(box);
+}
+
+function evidenceCard(s) {
+  return h('div', { class: 'card ev' },
+    h('div', { class: 'ev-top' }, h('span', { class: 'ev-title' }, signalName(s.signal)), h('span', { class: 'pill low' }, title(s.family)),
+      h('span', { class: 'pts' }, '+' + s.counted + (s.counted < s.points ? ' (capped from ' + s.points + ')' : ''))),
+    h('div', { class: 'sub' }, s.detail),
+    s.quote && h('blockquote', { class: 'quote' }, '"' + s.quote + '"', ' ', s.quote_found ? h('span', { class: 'pill good' }, 'found in source') : h('span', { class: 'pill warn' }, 'not found in source')),
+    h('div', { class: 'actions' }, s.doc_id && h('button', { class: 'btn', onclick: () => { state.returnTo = state.selected; openDoc(s.doc_id, s.quote); } }, 'View source'),
+      h('span', { class: 'sub' }, 'Source: ' + s.evidence_table.replace('_', ' ') + ' ' + s.evidence_id + (s.evidence_date ? ' · ' + day(s.evidence_date) : ''))));
+}
+
+function openDetail(id) {
+  const p = DATA.properties.find(x => x.id === id); if (!p) return; state.selected = id;
+  const d = state.decisions[id] || {};
+  const set = (action) => { state.decisions[id] = { ...(state.decisions[id] || {}), action: (state.decisions[id] || {}).action === action ? null : action }; saveDecisions(); openDetail(id); render(); };
+  const box = h('div', {},
+    h('button', { class: 'close', onclick: () => closeAll() }, 'Close'),
+    h('div', { class: 'flag-head' }, h('h2', { style: 'margin:0' }, p.name), h('span', { class: 'pill ' + p.tier }, p.tier), h('span', { class: 'score' }, Math.round(p.score) + '/100')),
+    h('p', { class: 'sub' }, [p.address, p.county].filter(Boolean).join(' · ')),
+    p.tier === 'hot' && h('div', { class: 'story' }, 'This is the kind of flag Bloomfield asked for: several independent signals pointing at the same project, found before the broker network would hear about it.'),
+    h('h3', {}, 'Why it is flagged'),
+    h('div', { class: 'card' }, h('dl', { class: 'facts' },
+      h('dt', {}, 'Owner (borrower)'), h('dd', {}, p.borrower || 'not found'), h('dt', {}, 'Lender'), h('dd', {}, p.lender || 'not found'),
+      h('dt', {}, 'Largest loan'), h('dd', {}, money(p.loan_amount)), h('dt', {}, 'Property type'), h('dd', {}, title(p.type)),
+      h('dt', {}, 'Parcel'), h('dd', {}, p.parcel || '-'), h('dt', {}, 'Evidence found'), h('dd', {}, (p.signals.length ? p.signals.length + ' pieces' : 'none') + (p.grouped_by === 'part_c' ? ' (records linked by the matcher)' : '')))),
+    h('h3', {}, 'Evidence (' + p.signals.length + ')'), p.signals.length ? p.signals.map(evidenceCard) : h('p', { class: 'sub' }, 'Nothing suspicious found for this property.'),
+    p.timeline.length > 0 && [h('h3', {}, 'Timeline'), h('ol', { class: 'timeline' }, [...p.timeline.map(e => h('li', { class: e.kind === 'good' ? 'good' : '' }, h('time', {}, day(e.date) + (ago(e.date) ? ' · ' + ago(e.date) + ' the demo date' : '')), e.label)),
+      h('li', { class: 'today' }, h('time', {}, day(DATA.meta.as_of)), 'Today (demo date)')])],
+    p.loans.length > 0 && [h('h3', {}, 'Loan history'), h('div', { class: 'card scroll' }, h('table', {}, h('thead', {}, h('tr', {}, ['Loan', 'Recorded', 'Amount', 'Modified', 'Paid off by permanent loan?', 'Status'].map(x => h('th', {}, x)))),
+      h('tbody', {}, p.loans.map(l => h('tr', {}, h('td', {}, title(l.loan_kind)), h('td', {}, day(l.recording_date)), h('td', {}, money(l.amount)), h('td', {}, l.modification_count + 'x'),
+        h('td', {}, l.takeout_date ? 'Yes, ' + day(l.takeout_date) : h('b', {}, 'No')), h('td', {}, h('span', { class: 'pill ' + (l.status === 'open' ? 'bad' : 'good') }, l.status) , l.months_open ? ' ' + Math.round(l.months_open) + ' months' : ''))))))],
+    p.bank && [h('h3', {}, 'The lender: ' + p.bank.name), h('div', { class: 'card' }, sparkline(p.bank.series), h('p', { class: 'sub' }, 'Share of its commercial real estate loans on nonaccrual, by quarter: ' + p.bank.series.map(s => pct(s.cre_nonaccrual_ratio)).join(' → ') + (p.bank.series.some(s => s.rising_two_quarters) ? '. Rising two quarters in a row.' : '.')))],
+    p.entity && [h('h3', {}, 'Who to contact'), h('div', { class: 'card' }, h('dl', { class: 'facts' }, h('dt', {}, 'Company'), h('dd', {}, p.entity.canonical_name),
+      h('dt', {}, 'Other properties'), h('dd', {}, Math.max(0, p.entity.property_count - 1) + ' other in the data'), h('dt', {}, 'State registry lookup'), h('dd', {}, p.contact_lookup ? 'requested (' + p.contact_lookup + '): officers and registered agent come from the state business registry' : 'not requested')))],
+    h('h3', {}, 'Researcher decision'),
+    h('div', { class: 'actions' }, h('button', { class: 'btn approve ' + (d.action === 'approved' ? 'on' : ''), onclick: () => set('approved') }, d.action === 'approved' ? '✓ On the weekly list' : 'Add to weekly list'),
+      h('button', { class: 'btn ' + (d.action === 'digging' ? 'on' : ''), onclick: () => set('digging') }, 'Needs more digging'),
+      h('button', { class: 'btn dismiss ' + (d.action === 'dismissed' ? 'on' : ''), onclick: () => set('dismissed') }, 'Dismiss')),
+    h('textarea', { class: 'note', placeholder: 'Notes for the team (saved in this browser only)', oninput: e => { state.decisions[id] = { ...(state.decisions[id] || {}), note: e.target.value }; saveDecisions(); } }, d.note || ''),
+    h('p', { class: 'sub' }, 'The tool never contacts anyone. Bloomfield handles all outreach.'));
+  show(box);
+}
+
+function show(node) { const dr = $('#drawer'); dr.replaceChildren(node); dr.classList.add('open'); $('#scrim').classList.add('open'); dr.scrollTop = 0; }
+function closeAll() { $('#drawer').classList.remove('open'); $('#scrim').classList.remove('open'); state.selected = null; state.returnTo = null; }
+
+/* ---------- AI Reader tab ---------- */
+const readerLabel = r => title(r.file_id.replace(/^fake-annarbor-/, '').replace(/-/g, ' '));
+function renderReader(root) {
+  const R = DATA.reader;
+  root.append(h('h1', {}, 'How the AI Reader works'),
+    h('p', { class: 'lead' }, 'The Reader turns a document into the same set of fields every time, and must give the exact quote each field came from. If a quote is not really in the document, the result is sent to a person instead of being trusted. These are real answers from Google\'s Gemini, recorded once, so there is nothing to call and nothing to pay for during a demo.'));
+  if (!R.length) { root.append(h('div', { class: 'empty' }, 'No recorded readings found (demo/recorded_readings.json).')); return; }
+  const ex = R[Math.min(state.reader, R.length - 1)];
+  root.append(h('div', { class: 'pillrow' }, R.map((r, i) => h('button', { class: 'btn ' + (i === state.reader ? 'on' : ''), onclick: () => { state.reader = i; render(); } }, readerLabel(r)))));
+  const quotes = ex.fields.map(f => f.quote);
+  root.append(
+    h('div', { class: 'banner ' + (ex.status === 'ok' ? 'ok' : 'review') }, ex.status === 'ok' ? 'Result: OK. Every value has a quote that really appears in the document, and the sanity checks passed.' : 'Result: NEEDS A PERSON. ' + (ex.reason || ex.parse_error || '')),
+    h('div', { class: 'grid2' },
+      h('div', {}, h('h3', {}, 'The source document'), h('pre', { class: 'doc' }, highlight(ex.document_text, quotes))),
+      h('div', {}, h('h3', {}, 'What the AI pulled out'), h('div', { class: 'card scroll' }, h('table', {}, h('thead', {}, h('tr', {}, ['Field', 'Value', 'Quote'].map(x => h('th', {}, x)))),
+        h('tbody', {}, ex.fields.map(f => h('tr', {}, h('td', {}, title(f.name)), h('td', {}, typeof f.value === 'number' ? money(f.value) : String(f.value)),
+          h('td', {}, f.quote == null ? h('span', { class: 'pill low' }, 'no quote') : f.quote_found ? h('span', { class: 'pill good' }, '✓ in document') : h('span', { class: 'pill bad' }, '✗ not in document'))))))))),
+    h('p', { class: 'sub' }, 'Model: ' + ex.model + (ex.provider ? ' (' + ex.provider + ')' : '') + ' · ' + (ex.input_tokens || '?') + ' tokens in, ' + (ex.output_tokens || '?') + ' out · recorded ' + day(ex.recorded_on) + ' · confidence: ' + (ex.confidence || '-') + ' · document ' + ex.file_id));
+  const bad = R.find(r => r.status !== 'ok');
+  root.append(h('h2', {}, 'The safety checks'), h('div', { class: 'card' }, h('ul', {},
+    h('li', {}, 'Every value must come with the exact words it was copied from; those words must really be in the document.'),
+    h('li', {}, 'Amounts and dates must be believable; a loan must mature after it was recorded.'),
+    h('li', {}, 'If the document type disagrees with the label from the collector, or the scan is poor, a person reviews it.'),
+    h('li', {}, 'Answers are saved, so reading the same document twice costs nothing, and a weekly spending cap stops the run before it overspends.'),
+    h('li', {}, 'Bloomfield\'s own material and Trepp data are never sent to an AI.'),
+    bad && h('li', {}, h('b', {}, 'Caught in this demo: '), readerLabel(bad) + ' (' + bad.file_id + '): ' + (bad.reason || '')))));
+  if (DATA.review.matches.length) root.append(h('h2', {}, 'Matches waiting for a person'), h('p', { class: 'sub' }, 'When the matcher is not sure two records are the same property, it asks instead of guessing.'),
+    ...DATA.review.matches.map(m => { const dec = state.matches[m.review_id];
+      return h('div', { class: 'card ev' }, h('div', { class: 'ev-title' }, 'Same property?'), h('div', { class: 'sub' }, m.reason + ' (similarity ' + Math.round(m.score) + '%)'),
+        h('p', {}, '1) ' + m.left_label, h('br'), '2) ' + m.right_label),
+        h('div', { class: 'actions' }, ['yes', 'no'].map(a => h('button', { class: 'btn ' + (dec === a ? 'on' : ''), onclick: () => { state.matches[m.review_id] = a; store.set('matches', state.matches); render(); } }, a === 'yes' ? 'Yes, same' : 'No, different'))),
+        dec && h('p', { class: 'sub' }, 'Recorded: ' + (dec === 'yes' ? 'same property (the flags would merge on the next run).' : 'different properties.'))); }));
+}
+
+/* ---------- data sources + how it works ---------- */
+const STATUS = { built: ['good', 'built'], manual: ['warn', 'manual inbox'], unverified: ['warn', 'automatic, needs checking'], planned: ['low', 'planned'] };
+function renderSources(root) {
+  root.append(h('h1', {}, 'Where the data comes from'), h('p', { class: 'lead' }, 'Honest status of every source. Nothing logs in, solves a CAPTCHA or goes around a block: a site that does not allow automated access becomes a "manual inbox" where a person drops the files.'),
+    h('div', { class: 'card scroll' }, h('table', {}, h('thead', {}, h('tr', {}, ['Source', 'How we get it', 'Status', 'Note'].map(x => h('th', {}, x)))),
+      h('tbody', {}, DATA.sources.map(s => h('tr', {}, h('td', {}, h('b', {}, s.name)), h('td', {}, s.how), h('td', {}, h('span', { class: 'pill ' + STATUS[s.status][0] }, STATUS[s.status][1])), h('td', { class: 'sub' }, s.note)))))));
+}
+function renderHow(root) {
+  const steps = [['Collect', 'Public records (county filings, liens, recorded loans, permits), SEC and FFIEC data, and the Trepp screen if Bloomfield shares one.', 'A researcher uploads the Trepp screen; nothing pulls on its own.'],
+    ['Read', 'The AI Reader turns each document into the same fields, with the exact source quote.', 'Fields are shown beside the source sentence; anything doubtful goes to a person.'],
+    ['Link', 'Records about the same property, loan, lender and company are joined (parcel, address, fuzzy names).', 'Unsure matches wait in a review queue.'],
+    ['Score', 'Each property gets points for each independent warning sign; signals of the same kind are capped.', 'Bloomfield owns the weights, size, geography and property types.'],
+    ['Rank', 'Flags with evidence and a plain-English summary, strongest first.', 'The researcher approves, dismisses or edits each flag. The tool never contacts anyone.']];
+  const fam = {}; DATA.weights.forEach(w => (fam[w.family] = fam[w.family] || []).push(w));
+  root.append(h('h1', {}, 'How it works, week to week'), h('ol', { class: 'steps' }, steps.map(([t, d, c]) => h('li', {}, h('div', {}, h('b', {}, t), h('div', {}, d), h('div', { class: 'sub' }, 'Control point: ' + c))))),
+    h('h2', {}, 'What earns points (all editable)'), h('div', { class: 'grid2' }, Object.entries(fam).map(([f, ws]) => h('div', { class: 'card' }, h('b', {}, title(f)),
+      h('table', {}, h('tbody', {}, ws.map(w => h('tr', {}, h('td', {}, signalName(w.signal)), h('td', { style: 'text-align:right' }, '+' + w.points))))))))
+    , h('h2', {}, 'This demo'), h('p', { class: 'sub' }, 'Built on ' + DATA.meta.built_at + ' from the real pipeline run on invented data (scoring ' + DATA.meta.scoring_version + '). Re-run with: python -m demo --open'));
+}
+
+/* ---------- shell ---------- */
+const TABS = [['flags', 'Ranked flags'], ['reader', 'AI Reader'], ['sources', 'Data sources'], ['how', 'How it works']];
+function render() {
+  const nav = $('#tabs'); nav.replaceChildren(...TABS.map(([k, label]) => h('button', { role: 'tab', 'aria-selected': state.tab === k, onclick: () => { state.tab = k; closeAll(); render(); window.scrollTo(0, 0); } }, label)));
+  const main = $('#main'); main.replaceChildren();
+  ({ flags: renderFlags, reader: renderReader, sources: renderSources, how: renderHow })[state.tab](main);
+}
+$('#scrim').addEventListener('click', closeAll);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAll(); });
+if (DATA) render(); else $('#main').textContent = 'No data embedded. Build this page with: python -m demo';
+</script>
+</body>
+</html>
