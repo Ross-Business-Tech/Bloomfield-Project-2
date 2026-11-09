@@ -1,0 +1,33 @@
+# ---------------------------------------------------------------------------
+# discovery.yaml - where collectors/discover.py looks for county record websites to add to our list.
+#
+# The tool reads a public DIRECTORY of county websites (such as NETR Online), collects the links to each
+# county's recorder / court / public-notice / assessor pages, screens every link (robots.txt, login or
+# CAPTCHA wall, wording about automated access in its terms), and saves the results as CANDIDATES.
+# It never turns a candidate into a scraper by itself: a person confirms the terms and adds selectors.
+#
+# NOTHING touches a directory until a person has read that directory's terms of use and set
+# terms_checked: true below. Until then the tool prints what to do and stops.
+# ---------------------------------------------------------------------------
+
+directories:
+  netr_online:
+    enabled: true
+    terms_checked: false          # TODO: a person reads the NETR Online terms of use, then sets this to true
+    terms_note: "Not checked yet. https://publicrecords.netronline.com/ (look for its terms / robots.txt)."
+    # {state} = 2-letter code, {county_slug} = county name lower-cased, "County" removed, spaces -> "_".
+    # TODO verify these two address patterns on the real site before the first run.
+    state_url: "https://publicrecords.netronline.com/state/{state}"
+    county_url: "https://publicrecords.netronline.com/state/{state}/county/{county_slug}"
+    # Links on a county page that go to another website are the county's own sites.
+    skip_domains: ["netronline.com", "facebook.com", "twitter.com", "linkedin.com", "google.com"]
+
+# Words in a link's text or address that tell us what kind of site it is (first match wins).
+classify:
+  recorder:      ["recorder", "register of deeds", "land records", "deeds", "clerk of the circuit", "county clerk", "official records"]
+  court:         ["court", "case search", "docket", "judiciary", "judicial"]
+  public_notice: ["public notice", "legal notice", "foreclosure", "sheriff sale", "sheriff's sale", "tax sale"]
+  assessor:      ["assessor", "appraisal", "property appraiser", "parcel", "tax collector", "treasurer"]
+
+# If a site's terms page contains any of these, a person must read it before we go near the site.
+terms_red_flags: ["automated", "scrap", "robot", "spider", "crawl", "harvest", "bots", "data mining", "machine"]
