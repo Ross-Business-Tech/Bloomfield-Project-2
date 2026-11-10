@@ -100,16 +100,34 @@ def test_inspection_gap(cfg):
 
 
 # ---- Anti-fluke and late signals ------------------------------------------------------
-def test_a_lone_signal_keeps_only_half(cfg):
+def test_a_lone_ordinary_signal_keeps_only_half(cfg):
+    lone = score(Property("a", recorded_loans=[construction(date(2023, 5, 10))]), cfg)   # L ~0.4
+    assert lone.showing == 1 and not lone.standouts
+    assert lone.score == pytest.approx(50 * lone.L.value * 0.5, abs=0.1)
+
+
+def test_extreme_upside_is_a_standout(cfg):
+    """A 5-year-old unpaid construction loan ranks on its own, flagged STANDOUT."""
     lone = score(Property("a", recorded_loans=[construction(date(2021, 11, 1))]), cfg)
-    assert lone.showing == 1 and lone.score == pytest.approx(25.0)
+    assert lone.standouts and eq.flag_text(lone) == "STANDOUT"
+    assert lone.score == pytest.approx(60.0) and lone.tier == "hot"
 
 
-def test_signals_that_agree_get_full_credit(cfg):
-    p = Property("a", recorded_loans=[construction(date(2021, 11, 10))],
-                 projects=[project(months_overdue=18)])
+def test_extreme_downside_is_a_counter_signal(cfg):
+    p = Property("a", recorded_loans=[construction(date(2021, 11, 1))],
+                 filings=[{"file_id": "bp", "filing_type": "building_permit", "permit_number": "BP-1",
+                           "filing_date": date(2024, 1, 1)}])
+    busy = score(p, cfg, insp={"BP-1": [date(2026, 11, 5)]})        # inspected 5 days ago
+    assert busy.counters and "COUNTER-SIGNAL" in eq.flag_text(busy)
+    assert busy.score == pytest.approx(60.0 * 0.85)
+
+
+def test_signals_that_agree_get_more_credit(cfg):
+    p = Property("a", recorded_loans=[construction(date(2023, 5, 10))],      # L ~0.4
+                 projects=[project(months_overdue=12)])                      # O 0.5
     r = score(p, cfg)
-    assert r.showing == 2 and r.score == pytest.approx((50 + 20) * 0.8)
+    assert r.showing == 2 and r.corroboration == 0.8
+    assert r.score == pytest.approx((50 * r.L.value + 20 * 0.5) * 0.8, abs=0.1)
 
 
 def test_late_signals_add_at_most_ten(cfg):

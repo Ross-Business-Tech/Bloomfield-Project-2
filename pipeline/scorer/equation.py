@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS equation_scores (
     score          DOUBLE,
     tier           TEXT,
     stage          TEXT,      -- early / actionable
+    flags          TEXT,      -- e.g. "STANDOUT" / "COUNTER-SIGNAL"
     l_loan_clock   DOUBLE,
     o_opening      DOUBLE,
     r_rent         DOUBLE,
@@ -91,6 +92,9 @@ CREATE TABLE IF NOT EXISTS equation_scores (
     scored_at      TIMESTAMP
 );
 """
+
+STANDOUT_LABEL = {"loan_clock": "Standout loan clock", "opening_delay": "Standout opening delay",
+                  "rent_decline": "Standout rent decline", "inspection_gap": "Standout site inactivity"}
 
 COURT_KINDS = {"foreclosure_notice", "receivership", "lis_pendens", "lender_lawsuit", "ucc_sale_notice",
                "tax_delinquency"}
@@ -119,6 +123,7 @@ class Part:
     value: float = 0.0             # strength 0..1
     known: bool = False            # False = no data, so it can't confirm anything
     why: str = "no data"
+    counter: str | None = None     # strong evidence the OTHER way (downside extreme)
 
 
 @dataclass
@@ -134,6 +139,8 @@ class Result:
     early: float = 0.0
     late: float = 0.0
     late_why: list = field(default_factory=list)
+    standouts: list = field(default_factory=list)
+    counters: list = field(default_factory=list)
     score: float = 0.0
     tier: str = "low"
     stage: str = "early"
@@ -203,7 +210,9 @@ def _median(xs):
     return (xs[n // 2] if n % 2 else (xs[n // 2 - 1] + xs[n // 2]) / 2) if xs else None
 
 
-def rent_decline(p: Property, facts: dict, c: dict, rents: dict, market: dict, as_of: date) -> Part:
+def rent_decline(p: Property, facts: dict, c: dict, rents: dict, market: dict, as_of: date,
+                 cfg_counter: dict | None = None) -> Part:
+    cfg_counter = cfg_counter or {"rent_beats_city_by": 9e9}
     obs = []
     for pr in p.projects:
         obs += rents.get(str(pr.get("project_id")), [])
@@ -228,7 +237,9 @@ def rent_decline(p: Property, facts: dict, c: dict, rents: dict, market: dict, a
     mkt_change = (m_now - m_then) / m_then if m_then else 0.0
     gap = mkt_change - prop_change
     value = max(0.0, min(1.0, gap / c["full_gap"]))
-    return Part(value, True, f"property rent {prop_change:+.1%} vs. its city {mkt_change:+.1%} "
+    counter = (f"rent beating its city by {-gap * 100:.1f} points"
+               if gap <= -cfg_counter["rent_beats_city_by"] else None)
+    return Part(value, True, counter=counter, why= f"property rent {prop_change:+.1%} vs. its city {mkt_change:+.1%} "
                              f"({gap * 100:.1f} points worse)" if gap > 0 else
                 f"property rent {prop_change:+.1%} vs. its city {mkt_change:+.1%} (keeping up)")
 
@@ -240,7 +251,8 @@ def _closest(series, d):
 # ---------------------------------------------------------------------------
 # I: construction inspection inactivity (Part A permit_inspections + Part B permits)
 # ---------------------------------------------------------------------------
-def inspection_gap(p: Property, c: dict, inspections: dict, as_of: date) -> Part:
+def inspection_gap(p: Property, c: dict, inspections: dict, as_of: date, cfg_counter: dict | None = None) -> Part:
+    cfg_counter = cfg_counter or {"inspected_within_days": -1}
     if any(filing_kind(f) == "certificate_of_occupancy" for f in p.filings):
         return Part(0.0, True, "certificate of occupancy issued: building is finished")
     permits = [f for f in p.filings if filing_kind(f) == "building_permit"]
@@ -257,7 +269,9 @@ def inspection_gap(p: Property, c: dict, inspections: dict, as_of: date) -> Part
         value = ramp(days, c["start_days"], c["full_days"])
         what = "last inspection" if dates else "permit issued (no inspections on record)"
         part = Part(value, True, f"permit {num or '?'}: {days} days since {what}")
-        if part.value >= best.value:
+        if dates and days <= cfg_counter["inspected_within_days"]:
+            part.counter = f"city inspected the site {days} days ago (construction is active)"
+        if part.value > best.value or (part.value == best.value and part.counter):
             best = part
     return best
 
@@ -299,14 +313,25 @@ def score_property(p: Property, cfg: dict, as_of: date, rents: dict, market: dic
     r = Result(p.property_id, facts)
     r.L = loan_clock(p, cfg["loan_clock"], as_of)
     r.O = opening_delay(p, cfg["opening_delay"], as_of)
-    r.R = rent_decline(p, facts, cfg["rent_decline"], rents, market, as_of)
-    r.I = inspection_gap(p, cfg["inspection_gap"], inspections, as_of)
+    r.R = rent_decline(p, facts, cfg["rent_decline"], rents, market, as_of, cfg["counter_signal"])
+    r.I = inspection_gap(p, cfg["inspection_gap"], inspections, as_of, cfg["counter_signal"])
     w = cfg["weights"]
-    raw = (w["loan_clock"] * r.L.value + w["opening_delay"] * r.O.value
-           + w["rent_decline"] * r.R.value + w["inspection_gap"] * r.I.value)
-    r.showing = sum(1 for part in (r.L, r.O, r.R, r.I) if part.value >= cfg["shows_at"])
+    parts = {"loan_clock": r.L, "opening_delay": r.O, "rent_decline": r.R, "inspection_gap": r.I}
+    r.showing = sum(1 for part in parts.values() if part.value >= cfg["shows_at"])
     r.corroboration = float(cfg["corroboration"][min(r.showing, 4)])
-    r.early = raw * r.corroboration
+    so = cfg["standout"]
+    early = 0.0
+    for name, part in parts.items():
+        if part.value >= so["at_strength"]:
+            # Upside extreme: counts in full, plus a boost, whatever the other signals say.
+            early += w[name] * part.value * so["boost"]
+            r.standouts.append(f"{STANDOUT_LABEL[name]}: {part.why}")
+        else:
+            early += w[name] * part.value * r.corroboration
+        if part.counter:
+            r.counters.append(part.counter)
+    # Downside extreme: each counter-signal cuts the early points.
+    r.early = early * cfg["counter_signal"]["factor"] ** len(r.counters)
     r.late, r.late_why = late_points(p, facts, cfg["late"], as_of)
     r.score = round(min(cfg["max_score"], r.early + r.late), 1)
     t = cfg["tiers"]
@@ -346,6 +371,8 @@ def explain(r: Result, cfg: dict) -> dict:
         "R_rent": {"strength": round(r.R.value, 3), "points": round(w["rent_decline"] * r.R.value, 1), "why": r.R.why},
         "I_inspection": {"strength": round(r.I.value, 3), "points": round(w["inspection_gap"] * r.I.value, 1), "why": r.I.why},
         "anti_fluke": f"{r.showing} early signal(s) showing -> keeps {r.corroboration:.0%} of early points",
+        "standouts": r.standouts,
+        "counter_signals": r.counters,
         "early_points": round(r.early, 1),
         "late_points": round(r.late, 1),
         "late_why": r.late_why,
@@ -353,14 +380,23 @@ def explain(r: Result, cfg: dict) -> dict:
     }
 
 
+def flag_text(r: Result) -> str:
+    out = []
+    if r.standouts:
+        out.append("STANDOUT")
+    if r.counters:
+        out.append("COUNTER-SIGNAL")
+    return " ".join(out)
+
+
 def write_scores(con, results: list[Result], cfg: dict, as_of: date) -> None:
+    con.execute("DROP TABLE IF EXISTS equation_scores")   # output only: rebuilt each run so new columns apply
     create_equation_tables(con)
-    con.execute("DELETE FROM equation_scores")
     now = db.utc_now()
     for r in results:
-        con.execute("INSERT INTO equation_scores VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", [
+        con.execute("INSERT INTO equation_scores VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", [
             r.property_id, r.facts.get("property_name") or r.facts.get("property_address"), r.facts.get("city"),
-            r.facts.get("state"), r.facts.get("loan_amount"), r.score, r.tier, r.stage, r.L.value, r.O.value,
+            r.facts.get("state"), r.facts.get("loan_amount"), r.score, r.tier, r.stage, flag_text(r), r.L.value, r.O.value,
             r.R.value, r.I.value, r.showing, r.corroboration, round(r.early, 2), round(r.late, 2),
             json.dumps(explain(r, cfg)), as_of, cfg["version"], now])
 
@@ -389,7 +425,8 @@ def main(argv=None):
     print(f"\n{'#':>3}  score  tier   stage       L    O    R    I   property")
     for i, r in enumerate(results[: args.top], 1):
         print(f"{i:>3}  {r.score:>5.1f}  {r.tier:<5}  {r.stage:<10} {r.L.value:.2f} {r.O.value:.2f} "
-              f"{r.R.value:.2f} {r.I.value:.2f}  {r.facts.get('property_name') or r.property_id}")
+              f"{r.R.value:.2f} {r.I.value:.2f}  {r.facts.get('property_name') or r.property_id}"
+              + (f"  [{flag_text(r)}]" if flag_text(r) else ""))
 
 
 if __name__ == "__main__":

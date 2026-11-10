@@ -6,7 +6,9 @@ All numbers live in `config/equation.yaml`. Code: `scorer/equation.py`. Tests: `
 ## The equation
 
 ```
-Score = min(100,  C(k) × (50·L + 20·O + 15·R + 15·I)  +  Late)
+Early = Σ  weight × strength × (1.2 if STANDOUT else C(k))      over L, O, R, I
+Early = Early × 0.85 ^ (number of COUNTER-SIGNALS)
+Score = min(100, Early + Late)
 ```
 
 | Term | What it measures | Strength 0 → 1 | Weight | Data from |
@@ -22,6 +24,10 @@ Score = min(100,  C(k) × (50·L + 20·O + 15·R + 15·I)  +  Late)
 
 **Tiers:** Hot ≥ 50 (call this week) · Watch ≥ 25 · Low below that.
 **Stage:** *Early* = no late filings yet (Bloomfield gets there first). *Actionable* = a court filing or lien already exists.
+
+## Extremes: STANDOUT and COUNTER-SIGNAL
+- **STANDOUT (upside extreme):** a signal at 90%+ strength skips the anti-fluke discount and counts 1.2×. Example: a 5-year-old unpaid construction loan alone scores 50 × 1.0 × 1.2 = **60 → Hot**, tagged `STANDOUT` so the researcher knows why it ranks high on a single signal.
+- **COUNTER-SIGNAL (downside extreme):** strong evidence the other way cuts early points by 15% each and is tagged `COUNTER-SIGNAL`. Today's counter-signals: rent beating its city by 15+ points, or a city inspection in the last 14 days (construction is active).
 
 ## Why the anti-fluke rule
 Each early signal is checked against the others. A single extreme number (one bad rent reading, a loan the recorder mis-labeled) keeps only half its points until a second, independent signal agrees. Inside each signal, more guards apply:

@@ -7,7 +7,7 @@
 #
 # L, O, R, I are each a strength from 0 to 1. Late is at most 10.
 # ---------------------------------------------------------------------------
-version: "eq-1.0"
+version: "eq-1.1"
 max_score: 100
 
 # ---- EARLY SIGNALS: these drive the rank (90+ of the 100 points) ----------
@@ -51,6 +51,18 @@ corroboration:
   2: 0.80
   3: 1.00
   4: 1.00
+
+# ---- EXTREMES ----------------------------------------------------------------
+# Upside: an early signal this strong is a STANDOUT. It skips the anti-fluke discount
+# and counts extra, so e.g. a 5-year-old unpaid construction loan ranks on its own.
+standout:
+  at_strength: 0.90
+  boost: 1.20
+# Downside: strong evidence the other way is a COUNTER-SIGNAL. Each one cuts the early points.
+counter_signal:
+  factor: 0.85                 # each counter-signal keeps 85% of the early points
+  rent_beats_city_by: 0.15     # property rent doing 15+ points BETTER than its city
+  inspected_within_days: 14    # a city inspection in the last 2 weeks = the site is busy
 
 # ---- LATE SIGNALS: already happened, so they barely move the rank -----------
 late:
