@@ -80,3 +80,33 @@ late:
 tiers:
   hot: 50     # call this week
   watch: 25   # keep an eye on it
+
+# =============================================================================
+# WEEKLY RUN + DASHBOARD (scorer/weekly.py, dashboard/app.py)
+# =============================================================================
+
+# ---- FILTERS: which flags show on the ranked list (team decision) -----------
+filters:
+  property_types_excluded: [Office]   # Bloomfield buys everything except office
+  min_loan_size: 5000000              # flags with no known loan size are kept, marked "size unknown"
+  max_loan_size: 50000000
+  states: []                          # empty = the whole U.S.
+
+# ---- HOW GOOD THE DEAL COULD BE (0-100), shown next to the score ---------------
+deal_quality:
+  starting_points: 40
+  property_type_fit: 15      # a type Bloomfield buys
+  loan_size_fit: 15          # inside the size range above
+  fixable_problem: 15        # loan clock / opening delay: a delay or stuck refinance, not a lack of demand
+  demand_problem: -15        # rent falling faster than the city: may be weak demand
+  off_market: 10             # no public sale or auction yet
+  public_sale: -10           # already at a public sale or auction, so others can see it
+
+# ---- WEEK-OVER-WEEK -----------------------------------------------------------------
+changes:
+  score_jump: 10             # "got worse" if the score rose by at least this much
+
+# ---- GOAL ----------------------------------------------------------------------------
+goal:
+  annual_deal_volume: 300000000
+  last_year_volume: 200000000

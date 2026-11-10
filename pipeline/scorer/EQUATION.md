@@ -67,3 +67,21 @@ python -m scorer.equation                    # score everything, print the top 1
 python -m scorer.equation --explain Kestrel  # every term for one property
 python -m pytest tests/test_equation.py -q
 ```
+
+## The dashboard (Part D)
+```
+cd pipeline
+python -m scorer.demo_week                                    # made-up demo with two weeks
+BLOOMFIELD_DB=data/demo.duckdb streamlit run dashboard/app.py
+```
+On real data, after Parts A, B and C have run: `python -m scorer.weekly`, then `streamlit run dashboard/app.py`.
+
+| Piece | File |
+|---|---|
+| The equation | `scorer/equation.py` |
+| Weekly run: filters (office off, $5M–$50M, all U.S.), ranking, deal quality, deal angles, history, research log | `scorer/weekly.py` |
+| Every number | `config/equation.yaml` |
+| Pages: Ranked flags · Flag details · What changed this week · Research log · How the score works | `dashboard/app.py` |
+| Demo data (uses the team's fake-data scripts and matcher, plus extra FAKE properties) | `scorer/demo_week.py` |
+
+The older scorer (`python -m scorer`, `config/scoring.yaml`) still runs and writes `property_scores`. The dashboard uses the equation.

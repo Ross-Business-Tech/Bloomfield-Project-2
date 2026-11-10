@@ -14,3 +14,4 @@ pdf2image
 feedparser
 rapidfuzz
 tqdm
+streamlit
