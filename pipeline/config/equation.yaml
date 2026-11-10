@@ -1,0 +1,70 @@
+# ---------------------------------------------------------------------------
+# equation.yaml - the Bloomfield Opportunity Score (0-100), built from Bloomfield's feedback.
+# Every number lives here. Bump `version` whenever you change one.
+# The full equation, in plain English, is in scorer/EQUATION.md.
+#
+#   Score = min(100,  C(k) x (50 L + 20 O + 15 R + 15 I)  +  Late )
+#
+# L, O, R, I are each a strength from 0 to 1. Late is at most 10.
+# ---------------------------------------------------------------------------
+version: "eq-1.0"
+max_score: 100
+
+# ---- EARLY SIGNALS: these drive the rank (90+ of the 100 points) ----------
+weights:
+  loan_clock: 50          # L  construction loan still not paid off ("on the clock") - strongest
+  opening_delay: 20       # O  opening date watch
+  rent_decline: 15        # R  asking rent falling vs. the local market
+  inspection_gap: 15      # I  no city inspection on an open building permit (site gone quiet)
+
+loan_clock:               # L: 0 before 30 months, rises in a straight line to 1 at 60 months
+  start_months: 30
+  full_months: 60
+  per_extension: 0.10     # each recorded extension/modification adds this...
+  max_extension_bonus: 0.20   # ...up to this much (L never goes above 1)
+
+opening_delay:            # O: delays under 6 months are normal (Bloomfield), so they score 0
+  start_months: 6
+  full_months: 18
+  missed_lease_up_bonus: 0.10   # student housing that missed its August move-in (only if already late)
+  per_slip: 0.05                # each time the stated opening date moved (only if already late)
+  max_slip_bonus: 0.10
+
+rent_decline:             # R: (market rent change) - (property rent change), over the same window
+  full_gap: 0.15          # property doing 15 points worse than its city = full strength
+  window_days: 365        # compare the latest rent with rents seen in the past year
+  min_days_between: 90    # need two readings at least this far apart, or R is "unknown"
+  min_observations: 2
+
+inspection_gap:           # I: days since the last city inspection on a permit with no certificate of occupancy
+  start_days: 60
+  full_days: 180
+
+# ---- ANTI-FLUKE: early signals must back each other up ------------------------
+# A signal "shows" when its strength is at least this much of its maximum.
+shows_at: 0.25
+# Share of the early points a property keeps, by how many early signals show.
+# A lone signal - however extreme - keeps only half, so one bad data point can't top the list.
+corroboration:
+  0: 0.0
+  1: 0.50
+  2: 0.80
+  3: 1.00
+  4: 1.00
+
+# ---- LATE SIGNALS: already happened, so they barely move the rank -----------
+late:
+  max_points: 10
+  court_points: 6         # foreclosure, receiver, lis pendens, lender lawsuit, UCC sale, tax sale (any one)
+  lien_points: 2          # per contractor (mechanic's) lien...
+  max_lien_points: 4      # ...up to this many points
+  big_lien_share: 0.02    # a lien >= 2% of the loan counts as two liens
+  recent_days: 180        # late events older than this count at half
+
+# ---- NOT SCORED (Bloomfield: public / forced, or everyone already has it) ----
+# Auctions (Ten-X), Trepp / CMBS DSCR and watchlists are shown as context only.
+
+# ---- TIERS ------------------------------------------------------------------
+tiers:
+  hot: 50     # call this week
+  watch: 25   # keep an eye on it
