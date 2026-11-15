@@ -174,10 +174,33 @@ CHANGE_KINDS = ("extension", "modification")
 NOT_A_LOAN = ("extension", "modification", "release", "assignment", "permanent_takeout")
 
 
+def loan_records(p: Property) -> list[dict]:
+    """Every recorded loan we know about for a property, in one shape.
+
+    Part A's recorded_loans table (index rows from county recorder searches) AND the loans the AI Reader
+    read out of recorder documents (filing_fields rows with filing_type 'recorded_loan'). Until Part A's
+    recorded_loans collector exists, the Reader's rows are the ONLY real loan data, so both must count.
+    """
+    out = list(p.recorded_loans)
+    seen = {(str(r.get("instrument_number") or ""), str(as_date(r.get("recording_date")))) for r in out}
+    for f in p.filings:
+        if filing_kind(f) != "recorded_loan":
+            continue
+        d = as_date(f.get("recording_date")) or filing_date(f)
+        key = (str(f.get("case_number") or ""), str(d))
+        if key in seen and key[0]:
+            continue                                 # same instrument already in recorded_loans
+        out.append({"record_id": f.get("file_id"), "file_id": f.get("file_id"), "loan_kind": f.get("loan_kind"),
+                    "recording_date": d, "amount": f.get("loan_amount"), "grantee": f.get("lender_name"),
+                    "grantor": f.get("borrower_name"), "instrument_number": f.get("case_number"),
+                    "property_address": f.get("property_address"), "state": f.get("property_state")})
+    return out
+
+
 def clock_loan(p: Property, as_of: date | None = None):
     """The loan whose clock is running: the latest construction loan, or else a short-term ("transitional")
     loan - any other mortgage that has needed an extension or modification since it was recorded."""
-    loans = sorted([r for r in p.recorded_loans if as_date(r.get("recording_date"))
+    loans = sorted([r for r in loan_records(p) if as_date(r.get("recording_date"))
                     and (as_of is None or as_date(r["recording_date"]) <= as_of)],   # nothing recorded after as_of
                    key=lambda r: as_date(r["recording_date"]))
     kind = lambda r: (r.get("loan_kind") or "").lower()
@@ -198,7 +221,7 @@ def loan_clock(p: Property, c: dict, as_of: date) -> Part:
     if not loan:
         return Part()
     con_loan, label = loan
-    loans = sorted([r for r in p.recorded_loans if (as_date(r.get("recording_date")) or date.min) <= as_of],
+    loans = sorted([r for r in loan_records(p) if (as_date(r.get("recording_date")) or date.min) <= as_of],
                    key=lambda r: as_date(r.get("recording_date")) or date.min)
     start = as_date(con_loan.get("recording_date"))
     later = [r for r in loans if (as_date(r.get("recording_date")) or date.min) > start]
@@ -389,7 +412,7 @@ def applicable_terms(p: Property, cfg: dict, as_of: date) -> dict:
     has been open for years. Unknown-but-possible terms stay applicable (and simply score 0 until data arrives).
     """
     a = cfg["applicability"]
-    kinds = {(r.get("loan_kind") or "").lower() for r in p.recorded_loans}
+    kinds = {(r.get("loan_kind") or "").lower() for r in loan_records(p)}
     pre_opening = any(pr.get("stale_candidate") or pr.get("page_still_unopened") or (pr.get("months_overdue") or 0) > 0
                       for pr in p.projects)
     permits = [f for f in p.filings if filing_kind(f) in ("building_permit", "certificate_of_occupancy")]

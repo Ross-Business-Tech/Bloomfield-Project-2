@@ -108,6 +108,41 @@ def tags(r):
 # ---------------------------------------------------------------------------
 # Pages
 # ---------------------------------------------------------------------------
+def loan_data_counts(con) -> dict:
+    """How much loan data this database actually has (the loan clock and loan amounts depend on it)."""
+    def count(sql):
+        try:
+            return con.execute(sql).fetchone()[0]
+        except Exception:                           # table not created yet
+            return 0
+    return {
+        "recorded_loans": count("SELECT count(*) FROM recorded_loans"),
+        "reader_loans": count("SELECT count(*) FROM filing_fields WHERE lower(filing_type) = 'recorded_loan'"),
+        "recorder_files": count("SELECT count(*) FROM raw_files WHERE source = 'recorder'"),
+        "unread_recorder_files": count("SELECT count(*) FROM raw_files r WHERE r.source = 'recorder' AND NOT EXISTS "
+                                       "(SELECT 1 FROM filing_fields f WHERE f.file_id = r.file_id)"),
+    }
+
+
+def loan_notice(con):
+    """Say plainly when there is no loan data, instead of letting every loan value read 0."""
+    c = loan_data_counts(con)
+    loans = c["recorded_loans"] + c["reader_loans"]
+    if loans:
+        st.caption(f"Loan data in this run: {loans} recorded loan(s) "
+                   f"({c['recorded_loans']} from recorder index rows, {c['reader_loans']} read from recorder documents).")
+        return
+    if c["unread_recorder_files"]:
+        st.warning(f"**No loan values yet:** {c['unread_recorder_files']} recorder document(s) are waiting for the AI reader. "
+                   "Run `python -m bot --full` with `OPENAI_API_KEY` set so they become loans; until then the loan clock "
+                   "(L) and loan amounts read 0 / size unknown.")
+    else:
+        st.warning("**No loan values yet:** this run has no recorder documents, so the loan clock (L) is 0 and loan "
+                   "amounts read 'size unknown' for every property. The county recorders are still manual: drop recorder "
+                   "documents in `data/inbox/recorder/<ST>/<county>/` (or switch a checked recorder to automatic), then "
+                   "run `python -m bot --full` with `OPENAI_API_KEY` set.")
+
+
 def page_ranked(con, run_id):
     df, cfg = flags(con, run_id), run_cfg(con, run_id)
     f = cfg["filters"]
@@ -116,6 +151,7 @@ def page_ranked(con, run_id):
     st.caption(f"Bloomfield Opportunity Score {cfg['version']} · {run_id.replace('week-', 'week of ')} · "
                f"{(', '.join(f['property_types_excluded']) + ' hidden') if f['property_types_excluded'] else 'all property types shown'} · loans from {money(f['min_loan_size'])}"
                f"{' to ' + money(f['max_loan_size']) if f.get('max_loan_size') else ' (no upper limit)'} · {'states ' + ', '.join(f['states']) if f['states'] else 'all U.S.'}")
+    loan_notice(con)
     hide_office = st.toggle("Hide office properties", value=False,
                             help="Office is shown by default. Turn this on to filter it out of the list and the counts.")
     if hide_office:

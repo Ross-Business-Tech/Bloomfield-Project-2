@@ -123,3 +123,15 @@ def test_properties_known_only_from_public_loan_data_are_listed_not_hidden(tmp_p
     assert {"FAKE Promenade 0", "FAKE Promenade 1", "FAKE Promenade 3"} <= names     # $60M is no longer "too big"
     hidden = [r for r in rows if not r[1]]
     assert [r[0] for r in hidden] == ["FAKE Promenade 2"] and "below the $2.5M" in hidden[0][4]   # only the $2.4M loan is hidden
+
+
+def test_demo_build_keeps_its_sample_properties(tmp_path, monkeypatch):
+    """The demo re-scores week 2 at the end; that must not wipe the made-up properties (they'd all read 0)."""
+    import duckdb
+    from scorer import demo_week
+    path = demo_week.build(tmp_path / "demo.duckdb")
+    weekly.main(["--db", str(path), "--as-of", demo_week.WEEK2.isoformat(), "--include-demo"])
+    c = duckdb.connect(str(path), read_only=True)
+    n, with_loan = c.execute("SELECT count(*), count(loan_amount) FROM weekly_flags WHERE run_id = ? AND rank IS NOT NULL",
+                             [f"week-{demo_week.WEEK2}"]).fetchone()
+    assert n >= 5 and with_loan >= 5

@@ -210,3 +210,20 @@ def test_standout_boost_and_rescale_do_not_stack(cfg):
     r = score(p, cfg)
     assert r.rescale == pytest.approx(100 / 80) and r.standouts            # L applies, O doesn't; L is a standout
     assert r.early == pytest.approx(50 * 1.0 * max(1.2, 100 / 80))          # 62.5, not 50 x 1.2 x 1.25 = 75
+
+
+def test_loans_read_by_the_ai_reader_feed_the_loan_clock(cfg):
+    """Real runs: Part A's recorded_loans collector isn't built, so recorder documents arrive as Reader rows
+    (filing_type 'recorded_loan'). They must still start the loan clock (they used to be ignored -> L = 0)."""
+    filings = [
+        {"file_id": "r1", "filing_type": "recorded_loan", "loan_kind": "construction", "recording_date": date(2021, 3, 1),
+         "loan_amount": 24_000_000, "lender_name": "Sample Bank", "borrower_name": "Sample Owner LLC",
+         "property_address": "1 Test St", "property_state": "MI"},
+        {"file_id": "r2", "filing_type": "recorded_loan", "loan_kind": "modification", "recording_date": date(2024, 3, 1),
+         "property_address": "1 Test St", "property_state": "MI"},
+    ]
+    p = Property("a", filings=filings)                    # recorded_loans table empty, as in a real run
+    assert p.recorded_loans == []
+    r = eq.loan_clock(p, cfg["loan_clock"], AS_OF)
+    assert r.value == 1.0 and "construction loan" in r.why and "1 extension" in r.why
+    assert eq.applicable_terms(p, cfg, AS_OF)["loan_clock"] is True
