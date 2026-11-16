@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -152,6 +153,7 @@ class Result:
     late: float = 0.0
     late_why: list = field(default_factory=list)
     standouts: list = field(default_factory=list)
+    boosts: dict = field(default_factory=dict)
     applicable: dict = field(default_factory=dict)
     rescale: float = 1.0
     counters: list = field(default_factory=list)
@@ -174,10 +176,53 @@ CHANGE_KINDS = ("extension", "modification")
 NOT_A_LOAN = ("extension", "modification", "release", "assignment", "permanent_takeout")
 
 
+def loan_records(p: Property) -> list[dict]:
+    """Every recorded loan we know about for a property, in one shape.
+
+    Part A's recorded_loans table (index rows from county recorder searches) AND the loans the AI Reader
+    read out of recorder documents (filing_fields rows with filing_type 'recorded_loan'). Until Part A's
+    recorded_loans collector exists, the Reader's rows are the ONLY real loan data, so both must count.
+    """
+    out = list(p.recorded_loans)
+    seen = {(str(r.get("instrument_number") or ""), str(as_date(r.get("recording_date")))) for r in out}
+    for f in p.filings:
+        if filing_kind(f) != "recorded_loan":
+            continue
+        d = as_date(f.get("recording_date")) or filing_date(f)
+        key = (str(f.get("case_number") or ""), str(d))
+        if key in seen and key[0]:
+            continue                                 # same instrument already in recorded_loans
+        out.append({"record_id": f.get("file_id"), "file_id": f.get("file_id"), "loan_kind": f.get("loan_kind"),
+                    "recording_date": d, "amount": f.get("loan_amount"), "grantee": f.get("lender_name"),
+                    "grantor": f.get("borrower_name"), "instrument_number": f.get("case_number"),
+                    "property_address": f.get("property_address"), "state": f.get("property_state")})
+    # Public CMBS loan filings (SEC Schedule AL): a loan the servicer reports as MODIFIED counts like a
+    # recorded modification on that loan, dated at the report that first shows it (or the report itself).
+    for ln in p.cmbs_loans:
+        if not ln.get("modified_indicator") or not as_date(ln.get("origination_date")):
+            continue
+        base = {"record_id": ln.get("loan_key"), "loan_kind": "unknown", "recording_date": as_date(ln["origination_date"]),
+                "amount": ln.get("original_balance"), "grantee": ln.get("servicer_name"), "source": "sec_edgar"}
+        out.append(base)
+        out.append({**base, "record_id": f"{ln.get('loan_key')}:modified", "loan_kind": "modification",
+                    "recording_date": as_date(ln.get("report_period")) or as_date(ln["origination_date"])})
+    return out
+
+
+def past_maturity_loan(p: Property, as_of: date):
+    """A public CMBS loan that is past its maturity date and still outstanding (balance > 0)."""
+    for ln in p.cmbs_loans:
+        m = as_date(ln.get("maturity_date"))
+        reported = as_date(ln.get("report_period"))
+        if m and m < as_of and (ln.get("current_balance") or 0) > 0 and (not reported or reported >= m):
+            return ln, m
+    return None
+
+
 def clock_loan(p: Property, as_of: date | None = None):
     """The loan whose clock is running: the latest construction loan, or else a short-term ("transitional")
     loan - any other mortgage that has needed an extension or modification since it was recorded."""
-    loans = sorted([r for r in p.recorded_loans if as_date(r.get("recording_date"))
+    loans = sorted([r for r in loan_records(p) if as_date(r.get("recording_date"))
                     and (as_of is None or as_date(r["recording_date"]) <= as_of)],   # nothing recorded after as_of
                    key=lambda r: as_date(r["recording_date"]))
     kind = lambda r: (r.get("loan_kind") or "").lower()
@@ -194,11 +239,18 @@ def clock_loan(p: Property, as_of: date | None = None):
 
 
 def loan_clock(p: Property, c: dict, as_of: date) -> Part:
+    pm = past_maturity_loan(p, as_of)
+    if pm:
+        # Public loan filing still shows a balance after the maturity date: the loan was never refinanced
+        # or paid off. That is the loan clock run out, whatever kind of loan it is.
+        ln, m = pm
+        return Part(1.0, True, f"public loan filing: past its maturity date ({m}) and still outstanding "
+                               f"(${(ln.get('current_balance') or 0) / 1e6:.1f}M)")
     loan = clock_loan(p, as_of)
     if not loan:
         return Part()
     con_loan, label = loan
-    loans = sorted([r for r in p.recorded_loans if (as_date(r.get("recording_date")) or date.min) <= as_of],
+    loans = sorted([r for r in loan_records(p) if (as_date(r.get("recording_date")) or date.min) <= as_of],
                    key=lambda r: as_date(r.get("recording_date")) or date.min)
     start = as_date(con_loan.get("recording_date"))
     later = [r for r in loans if (as_date(r.get("recording_date")) or date.min) > start]
@@ -246,6 +298,32 @@ def opening_delay(p: Property, c: dict, as_of: date) -> Part:
             why += f" (under {c['start_months']} months is normal)"
         if value >= best.value:
             best = Part(value, True, why)
+    if best.known:
+        return best
+    return permit_opening_delay(p, c, as_of)
+
+
+NEW_CONSTRUCTION = re.compile(r"\bnew\b|new (building|construction|commercial|multi)", re.I)
+
+
+def permit_opening_delay(p: Property, c: dict, as_of: date) -> Part:
+    """Public fallback when no project website date is tracked: a NEW-CONSTRUCTION building permit with no
+    certificate of occupancy. Months overdue = months since the permit was issued - expected build time."""
+    if any(filing_kind(f) == "certificate_of_occupancy" and (filing_date(f) or date.min) <= as_of for f in p.filings):
+        return Part()
+    best = Part()
+    for f in p.filings:
+        if filing_kind(f) != "building_permit" or not NEW_CONSTRUCTION.search(str(f.get("permit_status") or "")):
+            continue
+        issued = filing_date(f)
+        if not issued or issued > as_of:
+            continue
+        overdue = max(0.0, months_between(issued, as_of) - c.get("expected_build_months", 24))
+        value = ramp(overdue, c["start_months"], c["full_months"])
+        why = (f"public permit {f.get('permit_number') or ''}: new construction issued {issued}, no certificate of "
+               f"occupancy; {overdue:.0f} months past a typical {c.get('expected_build_months', 24)}-month build")
+        if value >= best.value:
+            best = Part(value, True, why.replace("permit  ", "permit "))
     return best
 
 
@@ -387,6 +465,7 @@ def creative_signals(p: Property, facts: dict, cfg: dict, as_of: date, rents, ma
         cr.cost_squeeze(p, c["cost_squeeze"], extra.get("ops", {}), as_of),
         cr.concession_creep(p, c["concession_creep"], extra.get("concessions", {}), as_of),
         cr.licensing_quality(p, c["licensing_quality"], extra.get("licenses", {}), as_of),
+        cr.value_cut(p, c["value_cut"], as_of),
     ]
 
 
@@ -398,7 +477,7 @@ def applicable_terms(p: Property, cfg: dict, as_of: date) -> dict:
     has been open for years. Unknown-but-possible terms stay applicable (and simply score 0 until data arrives).
     """
     a = cfg["applicability"]
-    kinds = {(r.get("loan_kind") or "").lower() for r in p.recorded_loans}
+    kinds = {(r.get("loan_kind") or "").lower() for r in loan_records(p)}
     pre_opening = any(pr.get("stale_candidate") or pr.get("page_still_unopened") or (pr.get("months_overdue") or 0) > 0
                       for pr in p.projects)
     permits = [f for f in p.filings if filing_kind(f) in ("building_permit", "certificate_of_occupancy")]
@@ -407,11 +486,20 @@ def applicable_terms(p: Property, cfg: dict, as_of: date) -> dict:
     deadlines = [as_date(pr.get("opening_deadline")) for pr in p.projects if pr.get("opening_deadline")]
     recent_opening = any(d and months_between(d, as_of) <= a["recent_opening_months"] for d in deadlines)
     return {
-        "loan_clock": clock_loan(p, as_of) is not None or pre_opening or recent_build,
+        "loan_clock": clock_loan(p, as_of) is not None or past_maturity_loan(p, as_of) is not None
+                      or pre_opening or recent_build,
         # a construction loan means something is being built: its opening date is unknown, not inapplicable
         "opening_delay": pre_opening or recent_opening or "construction" in kinds or recent_build,
         "creative": True,
     }
+
+
+def strength_boost(s: float, so: dict) -> float:
+    """x1.0 below boost_starts_at, rising in a straight line to max_boost at boost_full_at."""
+    start, full, top = so.get("boost_starts_at", 0.6), so.get("boost_full_at", 1.0), so.get("max_boost", 1.5)
+    if s <= start:
+        return 1.0
+    return 1.0 + (top - 1.0) * min(1.0, (s - start) / (full - start))
 
 
 def score_property(p: Property, cfg: dict, as_of: date, rents: dict, market: dict, inspections: dict,
@@ -439,14 +527,21 @@ def score_property(p: Property, cfg: dict, as_of: date, rents: dict, market: dic
     w_all = sum(w[k] for k in parts)
     w_app = sum(w[k] for k in parts if r.applicable[k])
     r.rescale = min(cfg["applicability"]["max_rescale"], w_all / w_app) if w_app else 1.0
+    strongest_creative = max([s.value for s in r.creative if s.known] or [0.0])
+    r.boosts = {}
     for name, part in parts.items():
-        if part.value >= so["at_strength"]:
-            # Upside extreme: counts in full and skips the anti-fluke discount. Its boost and the rescale
-            # do NOT stack: it gets whichever is larger.
-            early += w[name] * part.value * max(so["boost"], r.rescale)
-            r.standouts.append(f"{STANDOUT_LABEL[name]}: {part.why}")
+        # Strength boost: a strong signal counts MORE, even on its own. For C the strongest single creative
+        # signal decides (C's value itself already includes each source's reliability).
+        s_for_boost = strongest_creative if name == "creative" else part.value
+        boost = strength_boost(s_for_boost, so)
+        r.boosts[name] = boost
+        if boost > 1.0:
+            # The boost and the applicability rescale do NOT stack: the larger one is used.
+            early += w[name] * part.value * max(boost, r.rescale)
         else:
             early += w[name] * part.value * r.corroboration * r.rescale
+        if s_for_boost >= so["at_strength"] and part.value > 0:
+            r.standouts.append(f"{STANDOUT_LABEL[name]}: {part.why}")
         if part.counter:
             r.counters.append(part.counter)
     r.counters += counters
@@ -512,9 +607,10 @@ def load_inputs(con):
         # Coverage evidence: which states actually have readable inspection records (filing side of
         # the same permits). A state with none means "we can't see inspections there", NOT "no
         # inspections happened" - I must stay unknown for those properties.
-        for (st,) in con.execute(
+        coverage_rows = [] if not table_exists(con, "filing_fields") else con.execute(
                 "SELECT DISTINCT property_state FROM filing_fields WHERE filing_type = 'building_permit' "
-                "AND permit_number IN (SELECT permit_number FROM permit_inspections)").fetchall():
+                "AND permit_number IN (SELECT permit_number FROM permit_inspections)").fetchall()
+        for (st,) in coverage_rows:
             if st:
                 extra["inspection_coverage"].add(str(st).upper())
     return rents, market, inspections, extra
@@ -539,6 +635,7 @@ def explain(r: Result, cfg: dict) -> dict:
                               "reliability": s.q, "effective": round(s.effective, 3), "known": s.known, "why": s.why}
                              for s in r.creative],
         "anti_fluke": f"{r.showing} early signal(s) showing -> keeps {r.corroboration:.0%} of early points",
+        "strength_boosts": {k: round(v, 2) for k, v in r.boosts.items()},
         "standouts": r.standouts,
         "counter_signals": r.counters,
         "not_applicable": [k for k, ok in r.applicable.items() if not ok],

@@ -276,6 +276,40 @@ def tags(r, assessed=False, r_tier=""):
 # ---------------------------------------------------------------------------
 # Pages
 # ---------------------------------------------------------------------------
+def loan_data_counts(con) -> dict:
+    """How much loan data this database actually has (the loan clock and loan amounts depend on it)."""
+    def count(sql):
+        try:
+            return con.execute(sql).fetchone()[0]
+        except Exception:                           # table not created yet
+            return 0
+    return {
+        "recorded_loans": count("SELECT count(*) FROM recorded_loans"),
+        "reader_loans": count("SELECT count(*) FROM filing_fields WHERE lower(filing_type) = 'recorded_loan'"),
+        "recorder_files": count("SELECT count(*) FROM raw_files WHERE source = 'recorder'"),
+        "unread_recorder_files": count("SELECT count(*) FROM raw_files r WHERE r.source = 'recorder' AND NOT EXISTS "
+                                       "(SELECT 1 FROM filing_fields f WHERE f.file_id = r.file_id)"),
+    }
+
+
+def loan_notice(con):
+    """Say plainly when there is no loan data, instead of letting every loan value read 0."""
+    c = loan_data_counts(con)
+    loans = c["recorded_loans"] + c["reader_loans"]
+    if loans:
+        st.caption(f"Loan data in this run: {loans} recorded loan(s) "
+                   f"({c['recorded_loans']} from recorder index rows, {c['reader_loans']} read from recorder documents).")
+        return
+    if c["unread_recorder_files"]:
+        st.warning(f"**No loan values yet:** {c['unread_recorder_files']} recorder document(s) are waiting for the AI reader. "
+                   "Run `python -m bot --full` with `OPENAI_API_KEY` set so they become loans; until then the loan clock "
+                   "(L) and loan amounts read 0 / size unknown.")
+    else:
+        st.warning("**No loan values yet:** this run has no recorder documents, so the loan clock (L) is 0 and loan "
+                   "amounts read 'size unknown' for every property. The county recorders are still manual: drop recorder "
+                   "documents in `data/inbox/recorder/<ST>/<county>/` (or switch a checked recorder to automatic), then "
+                   "run `python -m bot --full` with `OPENAI_API_KEY` set.")
+
 def research_status(con) -> str:
     """One honest line about the sourcing agent's work on THIS database: how many research
     goals finished, how much verified evidence they saved, and the estimated model cost so
@@ -379,6 +413,8 @@ def page_ranked(con, run_id):
     st.caption(f"Bloomfield Opportunity Score {cfg['version']} · {run_id.replace('week-', 'week of ')} · "
                f"{(', '.join(f['property_types_excluded']) + ' hidden') if f['property_types_excluded'] else 'all property types shown'} · loans from {money(f['min_loan_size'])}"
                f"{' to ' + money(f['max_loan_size']) if f.get('max_loan_size') else ' (no upper limit)'} · {'states ' + ', '.join(f['states']) if f['states'] else 'all U.S.'}")
+    loan_notice(con)
+
     st.caption(research_status(con))
     with st.expander("Research diagnostics"):
         st.text(research_diagnostics(con))
@@ -830,9 +866,11 @@ def page_how(con, run_id):
 - Auctions and CMBS are shown as context only, never scored.
 - County records are found through **NETR Online** (`python -m collectors.discover`), recorders first because they feed the loan clock.
 """)
-    st.latex(r"C = 1-\prod_{j\in\{R,I,Q,V,X,K,L_q\}}\left(1-q_j\,s_j\right)")
-    st.latex(r"\text{Early}=\sum_{L,O,C} w_i\, s_i \times \begin{cases}\max(%s,\ \text{rescale}) & s_i\ge %s\ (\text{STANDOUT})\\ C(k)\times\text{rescale} & \text{otherwise}\end{cases}"
-             % (so["boost"], so["at_strength"]))
+    st.latex(r"C = 1-\prod_{j\in\{R,I,Q,V,X,K,L_q,W\}}\left(1-q_j\,s_j\right)")
+    st.latex(r"\text{Early}=\sum_{L,O,C} w_i\, s_i \times \begin{cases}\max(\text{boost}(s_i),\ \text{rescale}) & s_i\ge %s\\ \text{rescale} & \text{otherwise}\end{cases}"
+             % so.get("boost_starts_at", 0.6))
+    st.latex(r"\text{boost}(s)=1+%s\times\frac{s-%s}{%s-%s}" % (so.get("max_boost", 1.5) - 1, so.get("boost_starts_at", 0.6),
+                                                             so.get("boost_full_at", 1.0), so.get("boost_starts_at", 0.6)))
     st.latex(r"\text{rescale}=\min\!\left(%s,\ \frac{100}{\text{weights of terms that can apply}}\right)" % cfg["applicability"]["max_rescale"])
     st.latex(r"\text{Score}=\min\!\left(100,\ \text{Early}\times %s^{\,\#\text{counter-signals}}+\text{Late}\right)" % cs["factor"])
     lc, od, rd, ig = cfg["loan_clock"], cfg["opening_delay"], cfg["rent_decline"], cfg["inspection_gap"]
@@ -840,8 +878,8 @@ def page_how(con, run_id):
     qo, iv, xs, kc, lq = (c["occupancy_slide"], c["income_erosion"], c["cost_squeeze"], c["concession_creep"],
                           c["licensing_quality"])
     st.dataframe(pd.DataFrame([
-        {"Term": "L · Loan clock (construction, or any short-term loan that needed an extension)", "Weight": w["loan_clock"], "0 → 1": f"{lc['start_months']} → {lc['full_months']} months unpaid, +{lc['per_extension']} per extension, +{lc.get('opened_still_unpaid_bonus', 0)} if the building opened with the loan still outstanding", "From": "Part A recorded_loans"},
-        {"Term": "O · Opening delay", "Weight": w["opening_delay"], "0 → 1": f"{od['start_months']} → {od['full_months']} months late (under {od['start_months']} is normal)", "From": "Part B projects"},
+        {"Term": "L · Loan clock (construction, or any short-term loan that needed an extension)", "Weight": w["loan_clock"], "0 → 1": f"{lc['start_months']} → {lc['full_months']} months unpaid, +{lc['per_extension']} per extension, +{lc.get('opened_still_unpaid_bonus', 0)} if the building opened with the loan still outstanding", "From": "County recorder (recorded_loans / Reader) + public SEC loan filings: past maturity = 1.0, 'modified' flag = an extension"},
+        {"Term": "O · Opening delay", "Weight": w["opening_delay"], "0 → 1": f"{od['start_months']} → {od['full_months']} months late (under {od['start_months']} is normal)", "From": f"Project websites (Part B projects); if none, a public new-construction permit with no certificate of occupancy (months since issue − {od.get('expected_build_months', 24)})"},
         {"Term": "C · Creative signals (combined)", "Weight": w["creative"], "0 → 1": "1 − Π(1 − q·s) over the signals below", "From": "see below"},
     ]), hide_index=True, use_container_width=True)
     st.markdown(f"**Creative signals** (weight {w['creative']} combined; each counts as reliability q × strength s; together at most {c['max_confirmations']} anti-fluke confirmations)")
@@ -853,11 +891,13 @@ def page_how(con, run_id):
         {"Signal": "X · Cost squeeze", "s = 0 → 1": f"(expense growth − revenue growth since best year) ÷ {xs['full_gap']:.0%}", "q": xs["reliability"], "From": "operating_metrics"},
         {"Signal": "K · Concession creep", "s = 0 → 1": f"(free months per lease-year now − 6+ months ago) ÷ {kc['full_per_year']}", "q": kc["reliability"], "From": "B rent_observations (free rent + lease term)"},
         {"Signal": "Lq · Licensing / care", "s = 0 → 1": "CMS 1-star 0.8 · 2-star 0.5 · abuse +0.2 · state distress 0.8", "q": lq["reliability"], "From": "A licensing_records"},
+        {"Signal": "W · Value cut", "s = 0 → 1": f"(value at securitization − most recent value) ÷ value at securitization ÷ {c.get('value_cut', {}).get('full_drop', 0.5):.0%}", "q": c.get("value_cut", {}).get("reliability", 1.0), "From": "Public SEC CMBS loan filings (Schedule AL valuation fields)"},
     ]), hide_index=True, use_container_width=True)
     cor = {int(k): v for k, v in cfg["corroboration"].items()}   # JSON turns the keys into text
     st.markdown(f"""
-- **Anti-fluke C(k):** k = early signals at ≥ {cfg['shows_at']:.0%}. 1 → {cor[1]:.0%}, 2 → {cor[2]:.0%}, 3+ → {cor[3]:.0%}.
-- **⭐ STANDOUT:** a signal at ≥ {so['at_strength']:.0%} counts ×max({so['boost']}, rescale) and skips the anti-fluke discount (the boost and the rescale don't stack).
+- **No lone-signal discount:** a single signal counts in full (1 signal → {cor[1]:.0%}), because much of the data isn't public.
+- **Strength boost:** a signal at ≥ {so.get('boost_starts_at', 0.6):.0%} strength counts more, rising to ×{so.get('max_boost', 1.5)} at {so.get('boost_full_at', 1.0):.0%} (for C, the strongest single creative signal decides). The boost and the rescale don't stack: the larger is used.
+- **⭐ STANDOUT** tag: a signal at ≥ {so['at_strength']:.0%} strength.
 - **↩ COUNTER-SIGNAL:** strong evidence the other way (rent beating its city by {cs['rent_beats_city_by']:.0%}+, or a city inspection in the last {cs['inspected_within_days']} days) multiplies early points by {cs['factor']} each.
 - **Ready to act (max {late['max_points']}):** court/legal filing {late['court_points']}, contractor liens {late['lien_points']} each up to {late['max_lien_points']}. Older than {late['recent_days']} days count half.
 - **Not scored:** Ten-X auctions and CMBS data are shown as context only.

@@ -67,9 +67,29 @@ fields:
   property_type:     ["propertyTypeCode"]
   dscr:              ["mostRecentDebtServiceCoverageNetOperatingIncomePercentage", "debtServiceCoverageNetOperatingIncomeSecuritizationPercentage"]
   occupancy:         ["mostRecentPhysicalOccupancyPercentage", "physicalOccupancySecuritizationPercentage"]
+  # Reg AB II Item 1125 (Schedule AL) operating and valuation fields - public in every CMBS EX-102.
+  # They give a before (securitization) and after (most recent) in ONE filing, which feeds the
+  # occupancy slide (Q), income erosion (V), cost squeeze (X), value cut (W) and the loan clock (L).
+  origination_date:  ["originationDate"]
+  modified:          ["modifiedIndicator"]
+  sec_occupancy:     ["physicalOccupancySecuritizationPercentage"]
+  sec_revenue:       ["revenueSecuritizationAmount"]
+  sec_expenses:      ["operatingExpensesSecuritizationAmount"]
+  sec_noi:           ["netOperatingIncomeSecuritizationAmount"]
+  sec_value:         ["valuationSecuritizationAmount"]
+  sec_value_date:    ["valuationSecuritizationDate"]
+  recent_revenue:    ["mostRecentRevenueAmount"]
+  recent_expenses:   ["operatingExpensesAmount", "mostRecentOperatingExpensesAmount"]
+  recent_noi:        ["mostRecentNetOperatingIncomeAmount"]
+  recent_value:      ["mostRecentValuationAmount"]
+  recent_value_date: ["mostRecentValuationDate"]
+  fin_start:         ["mostRecentFinancialsStartDate"]
+  fin_end:           ["mostRecentFinancialsEndDate"]
 
 # Fields the audit does NOT complain about if they are empty (they are often blank for real).
-optional_fields: [property_name, property_zip, payment_status, original_balance]
+optional_fields: [property_name, property_zip, payment_status, original_balance, origination_date, modified,
+                  sec_occupancy, sec_revenue, sec_expenses, sec_noi, sec_value, sec_value_date, recent_revenue,
+                  recent_expenses, recent_noi, recent_value, recent_value_date, fin_start, fin_end]
 
 # Occupancy is stored as a fraction (0.95). If the file gives a number above this, it is read as a
 # percent (95 -> 0.95).

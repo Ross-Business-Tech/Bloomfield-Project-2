@@ -49,6 +49,8 @@ opening_delay:            # O: delays under 6 months are normal (Bloomfield), so
   start_months: 6
   full_months: 18
   missed_lease_up_bonus: 0.10   # student housing that missed its August move-in (only if already late)
+  expected_build_months: 24     # public fallback (no website date): a new-construction permit with no certificate of
+                                # occupancy is "overdue" by (months since permit issued - this)
   per_slip: 0.05                # each time the stated opening date moved (only if already late)
   max_slip_bonus: 0.10
 
@@ -87,6 +89,9 @@ creative:
     default_term_months: 12     # when the lease term is unknown (typical apartment lease)
     min_days_between: 180
     reliability: 0.70
+  value_cut:                    # W = (value at securitization - most recent value) / value at securitization / full_drop
+    full_drop: 0.50             # value down 50% = 1  (public: CMBS Schedule AL valuation fields on SEC EDGAR)
+    reliability: 1.00           # appraisal-based values reported to investors
   licensing_quality:            # Lq from CMS stars / state licensing (Part A licensing_records)
     star_strength: {1: 0.8, 2: 0.5, 3: 0.0, 4: 0.0, 5: 0.0}
     abuse_bonus: 0.2
@@ -98,10 +103,10 @@ creative:
 shows_at: 0.25
 # Share of the early points a property keeps, by how many early signals show.
 # A lone signal - however extreme - keeps only half, so one bad data point can't top the list.
-corroboration:
-  0: 0.0
-  1: 0.50
-  2: 0.80
+corroboration:              # Nov 2026: NO lone-signal discount any more (much data isn't public, so a single
+  0: 0.0                     # strong signal must be able to carry a property). Kept as a setting in case
+  1: 1.00                    # the team wants a corroboration rule back later.
+  2: 1.00
   3: 1.00
   4: 1.00
 
@@ -109,8 +114,11 @@ corroboration:
 # Upside: an early signal this strong is a STANDOUT. It skips the anti-fluke discount
 # and counts extra, so e.g. a 5-year-old unpaid construction loan ranks on its own.
 standout:
-  at_strength: 0.90
-  boost: 1.20
+  at_strength: 0.90          # STANDOUT tag at this strength or more
+  boost_starts_at: 0.60      # Strength boost (Nov 2026): x1.0 at 60% strength, rising in a straight line to ...
+  boost_full_at: 1.00
+  max_boost: 1.50            # ... x1.5 at 100%. For C, the strongest single creative signal sets the boost.
+  boost: 1.20                # (old flat standout boost, no longer used)
 # Downside: strong evidence the other way is a COUNTER-SIGNAL. Each one cuts the early points.
 counter_signal:
   factor: 0.85                 # each counter-signal keeps 85% of the early points

@@ -89,7 +89,7 @@ def test_occupancy_slide_from_edgar_history_scores_above_zero(tmp_path):
          occupancy=0.60, source="sec_edgar")
     run_id = weekly.run(con, None, date(2026, 11, 10))
     score, = con.execute("SELECT score FROM weekly_flags WHERE run_id = ?", [run_id]).fetchone()
-    assert 0 < score <= 30                                    # one creative signal, anti-fluked: watch-level, not hot
+    assert 0 < score < 50                                     # one strong creative signal: watch-level, not hot (no lone-signal discount since Nov 2026)
 
 
 def test_there_is_no_upper_limit_and_the_minimum_is_two_and_a_half_million():
@@ -184,6 +184,17 @@ def test_properties_known_only_from_public_loan_data_are_listed_not_hidden(tmp_p
     hidden = [r for r in rows if not r[1]]
     assert [r[0] for r in hidden] == ["FAKE Promenade 2"] and "below the $2.5M" in hidden[0][4]   # only the $2.4M loan is hidden
 
+
+def test_demo_build_keeps_its_sample_properties(tmp_path, monkeypatch):
+    """The demo re-scores week 2 at the end; that must not wipe the made-up properties (they'd all read 0)."""
+    import duckdb
+    from scorer import demo_week
+    path = demo_week.build(tmp_path / "demo.duckdb")
+    weekly.main(["--db", str(path), "--as-of", demo_week.WEEK2.isoformat(), "--include-demo"])
+    c = duckdb.connect(str(path), read_only=True)
+    n, with_loan = c.execute("SELECT count(*), count(loan_amount) FROM weekly_flags WHERE run_id = ? AND rank IS NOT NULL",
+                             [f"week-{demo_week.WEEK2}"]).fetchone()
+    assert n >= 5 and with_loan >= 5
 
 def test_interrupted_publish_preserves_last_completed_run(tmp_path, monkeypatch):
     """A failure inside the publish transaction (e.g. deploy kill surfaced as an error) must

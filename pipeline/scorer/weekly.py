@@ -417,10 +417,11 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="Weekly scoring run for the dashboard.")
     ap.add_argument("--as-of", help="YYYY-MM-DD (default today)")
     ap.add_argument("--db", help="database file (default data/bloomfield.duckdb)")
+    ap.add_argument("--include-demo", action="store_true", help="keep made-up sample properties (demo database only)")
     args = ap.parse_args(argv)
     as_of = date.fromisoformat(args.as_of) if args.as_of else date.today()
     con = open_db(args.db)
-    run_id = run(con, None, as_of)
+    run_id = run(con, None, as_of, include_demo=True if args.include_demo else None)
     top = con.execute("SELECT rank, property_name, score, tier, flags FROM weekly_flags "
                       "WHERE run_id = ? AND rank IS NOT NULL ORDER BY rank LIMIT 10", [run_id]).fetchall()
     print(f"{run_id}: {len(top)} ranked (top 10):")

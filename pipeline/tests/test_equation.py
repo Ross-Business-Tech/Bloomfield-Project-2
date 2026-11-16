@@ -102,17 +102,18 @@ def test_inspection_gap(cfg):
 
 
 # ---- Anti-fluke and late signals ------------------------------------------------------
-def test_a_lone_ordinary_signal_keeps_only_half(cfg):
-    lone = score(Property("a", recorded_loans=[construction(date(2023, 5, 10))]), cfg)   # L ~0.4
-    assert lone.showing == 1 and not lone.standouts
-    assert lone.score == pytest.approx(50 * lone.L.value * 0.5, abs=0.1)
+def test_a_lone_signal_is_no_longer_discounted(cfg):
+    """Nov 2026: much data isn't public, so one signal counts in full (no anti-fluke halving)."""
+    lone = score(Property("a", recorded_loans=[construction(date(2023, 5, 10))]), cfg)   # L ~0.4: below the boost
+    assert lone.showing == 1 and not lone.standouts and lone.corroboration == 1.0
+    assert lone.score == pytest.approx(50 * lone.L.value, abs=0.1)
 
 
 def test_extreme_upside_is_a_standout(cfg):
     """A 5-year-old unpaid construction loan ranks on its own, flagged STANDOUT."""
     lone = score(Property("a", recorded_loans=[construction(date(2021, 11, 1))]), cfg)
     assert lone.standouts and eq.flag_text(lone) == "STANDOUT"
-    assert lone.score == pytest.approx(60.0) and lone.tier == "hot"
+    assert lone.score == pytest.approx(50 * 1.0 * 1.5) and lone.tier == "hot"       # strength boost x1.5 at 100%
 
 
 def test_extreme_downside_is_a_counter_signal(cfg):
@@ -121,15 +122,15 @@ def test_extreme_downside_is_a_counter_signal(cfg):
                            "filing_date": date(2024, 1, 1)}])
     busy = score(p, cfg, insp={"BP-1": [date(2026, 11, 5)]})        # inspected 5 days ago
     assert busy.counters and "COUNTER-SIGNAL" in eq.flag_text(busy)
-    assert busy.score == pytest.approx(60.0 * 0.85)
+    assert busy.score == pytest.approx(75.0 * 0.85, abs=0.1)
 
 
-def test_signals_that_agree_get_more_credit(cfg):
+def test_two_weak_signals_add_up(cfg):
     p = Property("a", recorded_loans=[construction(date(2023, 5, 10))],      # L ~0.4
                  projects=[project(months_overdue=12)])                      # O 0.5
     r = score(p, cfg)
-    assert r.showing == 2 and r.corroboration == 0.8
-    assert r.score == pytest.approx((50 * r.L.value + 20 * 0.5) * 0.8, abs=0.1)
+    assert r.showing == 2 and r.corroboration == 1.0
+    assert r.score == pytest.approx(50 * r.L.value + 20 * 0.5, abs=0.1)        # weak signals: no boost, no discount
 
 
 def test_late_signals_add_at_most_ten(cfg):
@@ -211,7 +212,43 @@ def test_standout_boost_and_rescale_do_not_stack(cfg):
                                       construction(date(2023, 1, 1), "extension")], filings=filings)
     r = score(p, cfg)
     assert r.rescale == pytest.approx(100 / 80) and r.standouts            # L applies, O doesn't; L is a standout
-    assert r.early == pytest.approx(50 * 1.0 * max(1.2, 100 / 80))          # 62.5, not 50 x 1.2 x 1.25 = 75
+    assert r.early == pytest.approx(50 * 1.0 * max(1.5, 100 / 80))          # 75: boost 1.5 beats rescale 1.25; never 1.5 x 1.25
+
+
+def test_loans_read_by_the_ai_reader_feed_the_loan_clock(cfg):
+    """Real runs: Part A's recorded_loans collector isn't built, so recorder documents arrive as Reader rows
+    (filing_type 'recorded_loan'). They must still start the loan clock (they used to be ignored -> L = 0)."""
+    filings = [
+        {"file_id": "r1", "filing_type": "recorded_loan", "loan_kind": "construction", "recording_date": date(2021, 3, 1),
+         "loan_amount": 24_000_000, "lender_name": "Sample Bank", "borrower_name": "Sample Owner LLC",
+         "property_address": "1 Test St", "property_state": "MI"},
+        {"file_id": "r2", "filing_type": "recorded_loan", "loan_kind": "modification", "recording_date": date(2024, 3, 1),
+         "property_address": "1 Test St", "property_state": "MI"},
+    ]
+    p = Property("a", filings=filings)                    # recorded_loans table empty, as in a real run
+    assert p.recorded_loans == []
+    r = eq.loan_clock(p, cfg["loan_clock"], AS_OF)
+    assert r.value == 1.0 and "construction loan" in r.why and "1 extension" in r.why
+    assert eq.applicable_terms(p, cfg, AS_OF)["loan_clock"] is True
+
+
+def test_strength_boost_is_graduated(cfg):
+    so = cfg["standout"]
+    assert eq.strength_boost(0.5, so) == 1.0 and eq.strength_boost(0.6, so) == 1.0
+    assert eq.strength_boost(0.8, so) == pytest.approx(1.25) and eq.strength_boost(1.0, so) == pytest.approx(1.5)
+
+
+def test_one_strong_creative_signal_is_boosted_even_with_low_reliability(cfg):
+    """e.g. occupancy 95% -> 33% with no market data: s = 1.0 but reliability 0.63. The strongest signal sets the boost."""
+    from scorer import creative as cr
+    p = Property("a", projects=[project(stale_candidate=False, page_still_unopened=False, months_overdue=0)])
+    ops = {"p1": [{"period_end": date(2025, 1, 1), "period_months": 12, "occupancy": 0.954},
+                  {"period_end": date(2026, 6, 30), "period_months": 12, "occupancy": 0.328}]}
+    r = eq.score_property(p, cfg, AS_OF, {}, {}, {}, {"ops": ops, "mkt_occ": {}, "concessions": {}, "licenses": {}})
+    q = next(s for s in r.creative if s.code == "Q")
+    assert q.value == 1.0 and r.C.value == pytest.approx(0.63)
+    assert r.boosts["creative"] == pytest.approx(1.5) and "STANDOUT" in eq.flag_text(r)
+    assert r.early == pytest.approx(30 * 0.63 * max(1.5, r.rescale), abs=0.1)    # was 30 x 0.63 x 0.5 x 2 = 18.9
 
 
 def test_inspection_gap_unknown_without_coverage(cfg):

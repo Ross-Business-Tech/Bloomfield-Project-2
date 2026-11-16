@@ -201,4 +201,4 @@ if __name__ == "__main__":
     p = build()
     print(f"Demo database: {p}")
     from .weekly import main
-    main(["--db", str(p), "--as-of", WEEK2.isoformat()])
+    main(["--db", str(p), "--as-of", WEEK2.isoformat(), "--include-demo"])   # re-scoring must keep the sample data
