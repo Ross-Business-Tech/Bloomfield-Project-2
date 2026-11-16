@@ -152,6 +152,34 @@ def test_search_results_skip_listing_sites_and_respect_the_query_limit(bcon, mon
     assert search.search("q2", c, b, session=S()) == []            # only one query allowed
 
 
+def test_tavily_provider_searches_and_respects_limits(bcon, monkeypatch):
+    monkeypatch.setenv("TAVILY_API_KEY", "test-tavily-key")
+    c = cfg()
+    c["search"]["provider"] = "tavily"
+    body = {"results": [{"url": "https://www.zillow.com/x", "title": "z", "content": ""},
+                        {"url": "https://lofts.example.org/", "title": "Lofts", "content": "d"}]}
+
+    class S:
+        def post(self, url, json=None, headers=None, timeout=None):
+            assert url == search.TAVILY_URL
+            assert headers["Authorization"] == "Bearer test-tavily-key"
+            assert json["query"] == "q"
+            return FakeResponse(__import__("json").dumps(body), content_type="application/json")
+
+    b = Budget({"limits": {"max_pages_per_run": 5, "max_search_queries": 1}})
+    hits = search.search("q", c, b, session=S())
+    assert [r["url"] for r in hits] == ["https://lofts.example.org/"]      # skipped domain filtered
+    assert hits[0]["snippet"] == "d"
+    assert search.search("q2", c, b, session=S()) == []                     # only one query allowed
+
+
+def test_tavily_without_key_is_quiet(bcon, monkeypatch):
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    c = cfg()
+    c["search"]["provider"] = "tavily"
+    assert search.search("anything", c, Budget(c), session=FakeSession({})) == []
+
+
 def test_one_failing_signal_does_not_stop_the_others(bcon, monkeypatch):
     def boom(*a, **k):
         raise RuntimeError("feed exploded")
@@ -163,4 +191,7 @@ def test_one_failing_signal_does_not_stop_the_others(bcon, monkeypatch):
 def test_the_signal_list_matches_the_config():
     real = botrun.load_config()
     assert set(real["enabled_signals"]) == set(botrun.DESCRIPTIONS)
-    assert real["search"]["provider"] == "none"                     # no search service is on until a key is set up
+    # The user approved the free Tavily account on 2026-11-15; the key still comes only from
+    # the environment (TAVILY_API_KEY) and is never committed.
+    assert real["search"]["provider"] == "tavily"
+    assert real["search"]["tavily"]["api_key_env"] == "TAVILY_API_KEY"

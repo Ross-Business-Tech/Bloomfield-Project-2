@@ -1,10 +1,11 @@
 """
-cost.py - counting tokens, estimating dollars, and enforcing the spending cap.
+cost.py - counting tokens, estimating dollars, and advisory spend warnings.
 
 In plain English: AI services charge by "tokens" (roughly 4 characters each). Before
-every call we estimate the worst-case cost and refuse to go over the weekly or
-per-run cap in reader.yaml. After every REAL call we write a row to llm_usage, which
-is what the weekly total adds up. Answers served from the cache cost nothing.
+every call we estimate the worst-case cost and warn when it would pass the advisory
+landmarks in reader.yaml - the provider account enforces the real dollar limit, so
+the code does not stop calls. After every REAL call we write a row to llm_usage,
+which is what the weekly total adds up. Answers served from the cache cost nothing.
 
 See your spending any time:   python -m llm.cost
 """
@@ -19,9 +20,6 @@ from collectors.common.log import get_logger
 from .settings import load_reader_config
 
 log = get_logger("llm.cost")
-
-
-_warned_models: set[str] = set()      # say "no price listed" once per model, not on every call
 
 
 class CostCapExceeded(RuntimeError):
@@ -49,17 +47,19 @@ def estimate_tokens(text: str, cfg: dict | None = None) -> int:
 
 
 def get_prices(model: str, cfg: dict | None = None) -> tuple[float, float]:
-    """(dollars per input token, dollars per output token) for a model."""
+    """(dollars per input token, dollars per output token) for a model.
+
+    Fail-closed: a model with no EXACT configured price is refused. Any guessed price
+    (a default catch-all, the highest listed rate) can under-count the real bill, and
+    the spending cap is only as honest as the prices behind it."""
     cfg = cfg or load_reader_config()
     table = cfg.get("prices_per_million_tokens") or {}
     entry = table.get(model)
     if entry is None:
-        entry = table.get("default")
-        if model not in _warned_models:
-            _warned_models.add(model)
-            log.warning("no price listed for model %r in reader.yaml; using the default price (add the real one)", model)
-    if entry is None:
-        raise ValueError("reader.yaml needs prices_per_million_tokens (at least a 'default')")
+        raise ValueError(
+            f"no exact price configured for model {model!r} in reader.yaml. Add its "
+            "authoritative per-million-token price to prices_per_million_tokens before "
+            "spending on it.")
     return float(entry["input"]) / 1_000_000, float(entry["output"]) / 1_000_000
 
 
@@ -79,9 +79,11 @@ def weekly_spend(con, now=None) -> float:
 def check_budget(con, model: str, est_input_tokens: int, max_output_tokens: int,
                  cfg: dict | None = None) -> float:
     """
-    Raise CostCapExceeded if the worst case for the next call (all the output tokens
-    we allow it to write) would take us over the weekly or per-run cap.
-    Returns the worst-case cost estimate.
+    Estimate the worst case for the next call (all the output tokens we allow it to
+    write) and warn when it would pass the advisory caps in reader.yaml. It does NOT
+    stop the call: the provider account enforces its own dollar limit (user decision,
+    2026-11-15), so a second code-level cap would only block authorized work early.
+    Usage accounting still records every real call. Returns the worst-case estimate.
     """
     cfg = cfg or load_reader_config()
     worst = compute_cost(model, est_input_tokens, max_output_tokens, cfg)
@@ -89,15 +91,13 @@ def check_budget(con, model: str, est_input_tokens: int, max_output_tokens: int,
     run_cap = float(cfg.get("run_cost_cap_usd", 5))
     spent_week = weekly_spend(con) if con is not None else 0.0
     if spent_week + worst > weekly_cap:
-        raise CostCapExceeded(
-            f"STOPPED: weekly AI cost cap reached. Spent ${spent_week:.2f} in the last 7 days; "
-            f"the next call could cost up to ${worst:.2f}, which would pass the ${weekly_cap:.2f} cap. "
-            "Raise weekly_cost_cap_usd in config/reader.yaml if this is intended.")
+        log.warning("weekly AI spend passing advisory cap: $%.2f spent in the last 7 days; "
+                    "the next call could cost up to $%.2f (advisory cap $%.2f, not enforced)",
+                    spent_week, worst, weekly_cap)
     if _run_spend + worst > run_cap:
-        raise CostCapExceeded(
-            f"STOPPED: per-run AI cost cap reached. Spent ${_run_spend:.2f} in this run; "
-            f"the next call could cost up to ${worst:.2f}, which would pass the ${run_cap:.2f} cap. "
-            "Raise run_cost_cap_usd in config/reader.yaml, or run again later.")
+        log.warning("per-run AI spend passing advisory cap: $%.2f spent in this run; "
+                    "the next call could cost up to $%.2f (advisory cap $%.2f, not enforced)",
+                    _run_spend, worst, run_cap)
     return worst
 
 

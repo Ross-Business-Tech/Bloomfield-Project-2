@@ -299,13 +299,21 @@ def _closest(series, d):
 # ---------------------------------------------------------------------------
 # I: construction inspection inactivity (Part A permit_inspections + Part B permits)
 # ---------------------------------------------------------------------------
-def inspection_gap(p: Property, c: dict, inspections: dict, as_of: date, cfg_counter: dict | None = None) -> Part:
+def inspection_gap(p: Property, c: dict, inspections: dict, as_of: date, cfg_counter: dict | None = None,
+                   state: str | None = None, coverage: set | None = None) -> Part:
     cfg_counter = cfg_counter or {"inspected_within_days": -1}
     if any(filing_kind(f) == "certificate_of_occupancy" for f in p.filings):
         return Part(0.0, True, "certificate of occupancy issued: building is finished")
     permits = [f for f in p.filings if filing_kind(f) == "building_permit"]
     if not permits:
         return Part()
+    # Absent inspection records are only evidence when the market actually publishes readable
+    # inspections (coverage). Otherwise permit age alone cannot establish inactivity: stay unknown.
+    own = {str(f.get("permit_number") or "") for f in permits}
+    has_real_dates = any(d for num in own for d in inspections.get(num, []) if d and d <= as_of)
+    covered = coverage is not None and (state or "").upper() in {str(s).upper() for s in coverage}
+    if not has_real_dates and not covered:
+        return Part(0.0, False, "no readable inspection records for this market; inactivity unknown")
     best = Part()
     for f in permits:
         num = str(f.get("permit_number") or "")
@@ -367,7 +375,8 @@ def creative_signals(p: Property, facts: dict, cfg: dict, as_of: date, rents, ma
     from .weekly import property_type          # (weekly imports this module; import here to avoid a loop)
     c = cfg["creative"]
     R = rent_decline(p, facts, cfg["rent_decline"], rents, market, as_of, cfg["counter_signal"])
-    I = inspection_gap(p, cfg["inspection_gap"], inspections, as_of, cfg["counter_signal"])
+    I = inspection_gap(p, cfg["inspection_gap"], inspections, as_of, cfg["counter_signal"],
+                       state=facts.get("state"), coverage=extra.get("inspection_coverage"))
     ptype = property_type(p)
     return [
         cr.Sig("R", R.value, R.known, R.why, cfg["rent_decline"]["reliability"], R.counter),
@@ -454,7 +463,7 @@ def score_property(p: Property, cfg: dict, as_of: date, rents: dict, market: dic
 def load_inputs(con):
     """Returns (rents, market, inspections, extra) where extra holds the other creative-signal inputs."""
     rents, market, inspections = {}, {}, {}
-    extra = {"ops": {}, "mkt_occ": {}, "concessions": {}, "licenses": {}}
+    extra = {"ops": {}, "mkt_occ": {}, "concessions": {}, "licenses": {}, "inspection_coverage": set()}
     if table_exists(con, "rent_observations"):
         cols = {r[0] for r in con.execute("SELECT column_name FROM information_schema.columns "
                                           "WHERE table_name = 'rent_observations'").fetchall()}
@@ -479,7 +488,13 @@ def load_inputs(con):
         rent = "rent_per_unit_year" if "rent_per_unit_year" in mcols else "NULL"
         for st, pt, d, occ, mr in con.execute(
                 f"SELECT state, property_type, period, occupancy, {rent} FROM market_occupancy").fetchall():
-            extra["mkt_occ"].setdefault(((st or "").upper(), clean_type(pt)), []).append((as_date(d), occ, mr))
+            base = clean_type(pt)
+            low = (pt or "").lower()                    # keep the benchmark's real subtype in the key:
+            if "nursing" in low or "skilled" in low:    # nursing-facility averages never serve assisted/
+                base = f"{base} (nursing)"              # independent-living properties, and vice versa
+            elif "assisted" in low or "independent living" in low:
+                base = f"{base} (assisted)"
+            extra["mkt_occ"].setdefault(((st or "").upper(), base), []).append((as_date(d), occ, mr))
     if table_exists(con, "licensing_records"):
         cur = con.execute("SELECT * FROM licensing_records")
         names = [x[0] for x in cur.description]
@@ -494,6 +509,14 @@ def load_inputs(con):
     if table_exists(con, "permit_inspections"):
         for num, d in con.execute("SELECT permit_number, inspection_date FROM permit_inspections").fetchall():
             inspections.setdefault(str(num), []).append(as_date(d))
+        # Coverage evidence: which states actually have readable inspection records (filing side of
+        # the same permits). A state with none means "we can't see inspections there", NOT "no
+        # inspections happened" - I must stay unknown for those properties.
+        for (st,) in con.execute(
+                "SELECT DISTINCT property_state FROM filing_fields WHERE filing_type = 'building_permit' "
+                "AND permit_number IN (SELECT permit_number FROM permit_inspections)").fetchall():
+            if st:
+                extra["inspection_coverage"].add(str(st).upper())
     return rents, market, inspections, extra
 
 

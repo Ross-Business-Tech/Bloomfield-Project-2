@@ -40,7 +40,7 @@ Score = min(100, Early + Late)
 |---|---|---|---|
 | **R** rent vs. city | (city rent change − property rent change) ÷ 15 pts | 0.9 | B `rent_observations` + A `market_rents` |
 | **I** site inactivity | 60 → 180 days since a city inspection on an open permit | 0.8 | A `permit_inspections` (filled by `collectors/permits.py` from city building departments; NETR does not list them) |
-| **Q** occupancy slide | (peak occupancy in the last 36 months − occupancy now − market drop) ÷ 15 pts | 0.9 (×0.7 with no market data) | `operating_metrics` + `market_occupancy` |
+| **Q** occupancy slide | (peak occupancy in the last 36 months − occupancy now − market drop) ÷ 15 pts | 0.9 (×0.7 with no market data) | `operating_metrics` (public disclosures; SEC CMBS reports feed it one occupancy row per loan per report period) + `market_occupancy` |
 | **V** income erosion | (best-year NOI in the last 48 months − NOI now) ÷ best-year NOI ÷ 50%. **No DSCR** (debt service is not available) | 1.0 | `operating_metrics` (public disclosures) |
 | **X** cost squeeze | (expense growth − revenue growth since the best year) ÷ 15 pts | 0.6 | `operating_metrics` |
 | **K** concession creep | (free months **per year of lease term** now − 6+ months earlier) ÷ 1 month. Unknown term = 12 months | 0.7 | B `rent_observations` (free rent + lease term) |

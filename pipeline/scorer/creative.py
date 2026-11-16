@@ -103,31 +103,80 @@ def _ops(p, ops: dict, as_of: date) -> list[dict]:
     return sorted(rows, key=lambda r: as_date(r["period_end"]))
 
 
+def _ops_by_loan(p, ops: dict, as_of: date) -> dict[str, list[dict]]:
+    """Operating history grouped per loan/link, each series sorted by period_end.
+
+    Never merge loans into one series: pari passu/companion notes report separately (BMO
+    2023-5C1 notes 1A-3/1A-5 file a literal 0.0 while 1A-1 files 0.9793 for the same
+    property in the same period), and a merged series compared different notes against
+    each other and fabricated trends. Whether a literal 0.0 is a non-report or true
+    vacancy is unresolved source semantics, so zeros are preserved as observed and the
+    cross-loan comparison is what is fixed here. One row per loan+period is enforced by the collector; if duplicates ever
+    appear, the one from the later file (by file_id) wins, so results stay deterministic."""
+    by_loan: dict[str, list[dict]] = {}
+    for i in sorted(link_ids(p)):
+        seen: dict[date, dict] = {}
+        for r in ops.get(i, []):
+            d = as_date(r.get("period_end"))
+            if not d or (as_date(r.get("disclosed_on")) or d) > as_of:
+                continue
+            if d not in seen or str(r.get("file_id") or "") > str(seen[d].get("file_id") or ""):
+                seen[d] = r
+        rows = [seen[d] for d in sorted(seen)]
+        if rows:
+            by_loan[i] = rows
+    return by_loan
+
+
 # ---------------------------------------------------------------------------
 # Q: occupancy slide, measured against the market
 # ---------------------------------------------------------------------------
 def occupancy_slide(p, ptype, state, c, ops, mkt_occ, as_of) -> Sig:
-    rows = [r for r in _ops(p, ops, as_of) if r.get("occupancy") is not None]
-    if len(rows) < 2:
+    keys = [((state or "").upper(), ptype), ("US", ptype)]
+    if ptype == "Senior housing":   # subtype matters: nursing-facility averages are not an
+        raw = " ".join(str(r.get("property_type") or "")          # assisted-living benchmark
+                       for r in p.projects + p.filings + p.cmbs_loans).lower()
+        sub = ("nursing" if ("nursing" in raw or "skilled" in raw)
+               else "assisted" if ("assisted" in raw or "independent living" in raw) else None)
+        if sub:
+            keys = [((state or "").upper(), f"Senior housing ({sub})"), ("US", f"Senior housing ({sub})")] + keys
+    series, used = None, None
+    for k in keys:
+        if mkt_occ.get(k):
+            series, used = mkt_occ[k], k[1]
+            break
+    # Each loan is trended on its own history only (see _ops_by_loan). Literal 0.0
+    # readings are kept as observed: whether they are non-reports or true vacancy is
+    # unresolved source semantics, and dropping them could silently suppress real distress.
+    best = None
+    for history in _ops_by_loan(p, ops, as_of).values():
+        rows = [r for r in history if r.get("occupancy") is not None]
+        if len(rows) < 2:
+            continue
+        now = rows[-1]
+        now_d = as_date(now["period_end"])
+        window = [r for r in rows if (now_d - as_date(r["period_end"])).days <= c["lookback_months"] * 30.5]
+        peak = max(window, key=lambda r: r["occupancy"])
+        drop = peak["occupancy"] - now["occupancy"]
+        if series:
+            m_then = min(series, key=lambda t: abs((t[0] - as_date(peak["period_end"])).days))[1]
+            m_now = min(series, key=lambda t: abs((t[0] - now_d).days))[1]
+            mkt_drop = m_then - m_now
+        else:
+            m_then = m_now = mkt_drop = 0.0
+        gap = drop - mkt_drop
+        if best is None or gap > best[0]:          # sorted loan order keeps ties deterministic
+            best = (gap, drop, peak, now, m_then, m_now)
+    if best is None:
         return Sig("Q")
-    now = rows[-1]
-    now_d = as_date(now["period_end"])
-    window = [r for r in rows if (now_d - as_date(r["period_end"])).days <= c["lookback_months"] * 30.5]
-    peak = max(window, key=lambda r: r["occupancy"])
-    drop = peak["occupancy"] - now["occupancy"]
-    series = mkt_occ.get(((state or "").upper(), ptype)) or mkt_occ.get(("US", ptype))
+    gap, drop, peak, now, m_then, m_now = best
     q = c["reliability"]
     if series:
-        m_then = min(series, key=lambda t: abs((t[0] - as_date(peak["period_end"])).days))[1]
-        m_now = min(series, key=lambda t: abs((t[0] - now_d).days))[1]
-        mkt_drop = m_then - m_now
-        why = (f"occupancy {peak['occupancy']:.1%} -> {now['occupancy']:.1%} ({drop * 100:.1f} pts) vs. market "
-               f"{m_then:.1%} -> {m_now:.1%} ({mkt_drop * 100:.1f} pts)")
+        why = (f"occupancy {peak['occupancy']:.1%} -> {now['occupancy']:.1%} ({drop * 100:.1f} pts) vs. {used or ''} market "
+               f"{m_then:.1%} -> {m_now:.1%} ({(m_then - m_now) * 100:.1f} pts)")
     else:
-        mkt_drop = 0.0
         q *= c["no_market_penalty"]
         why = f"occupancy {peak['occupancy']:.1%} -> {now['occupancy']:.1%} ({drop * 100:.1f} pts); no market data (trusted less)"
-    gap = drop - mkt_drop
     counter = (f"occupancy up {-drop * 100:.1f} pts" if -drop >= c["counter_rise"] else None)
     return Sig("Q", clamp(gap / c["full_gap"]), True, why, q, counter)
 
@@ -136,18 +185,25 @@ def occupancy_slide(p, ptype, state, c, ops, mkt_occ, as_of) -> Sig:
 # V: income erosion (NOI now vs. its best year in the lookback) - no DSCR
 # ---------------------------------------------------------------------------
 def income_erosion(p, c, ops, as_of) -> Sig:
-    rows = [r for r in _ops(p, ops, as_of) if r.get("noi") is not None]
-    if not rows:
+    best = None
+    for history in _ops_by_loan(p, ops, as_of).values():   # per loan, never across loans
+        rows = [r for r in history if r.get("noi") is not None]
+        if not rows:
+            continue
+        now = rows[-1]
+        now_d = as_date(now["period_end"])
+        noi_now = _annual(now, "noi")
+        annual = [_annual(r, "noi") for r in rows if (r.get("period_months") or 12) >= 12
+                  and (now_d - as_date(r["period_end"])).days <= c["lookback_months"] * 30.5]
+        peak = max(annual) if annual else None
+        if not peak or peak <= 0:
+            continue
+        erosion = (peak - noi_now) / peak
+        if best is None or erosion > best[0]:
+            best = (erosion, noi_now, peak)
+    if best is None:
         return Sig("V")
-    now = rows[-1]
-    now_d = as_date(now["period_end"])
-    noi_now = _annual(now, "noi")
-    annual = [_annual(r, "noi") for r in rows if (r.get("period_months") or 12) >= 12
-              and (now_d - as_date(r["period_end"])).days <= c["lookback_months"] * 30.5]
-    peak = max(annual) if annual else None
-    if not peak or peak <= 0:
-        return Sig("V")
-    erosion = (peak - noi_now) / peak
+    erosion, noi_now, peak = best
     return Sig("V", clamp(erosion / c["full_noi_drop"]), True,
                f"NOI ${noi_now / 1e6:.2f}M/yr vs. best year ${peak / 1e6:.2f}M ({-erosion:+.0%})", c["reliability"])
 
@@ -156,17 +212,28 @@ def income_erosion(p, c, ops, as_of) -> Sig:
 # X: cost squeeze (expenses growing faster than revenue since the best year)
 # ---------------------------------------------------------------------------
 def cost_squeeze(p, c, ops, as_of) -> Sig:
-    rows = [r for r in _ops(p, ops, as_of) if r.get("revenue") and r.get("expenses")]
-    if len(rows) < 2:
+    best = None
+    base_is_now = False
+    for history in _ops_by_loan(p, ops, as_of).values():   # per loan, never across loans
+        rows = [r for r in history if r.get("revenue") and r.get("expenses")]
+        if len(rows) < 2:
+            continue
+        full_years = [r for r in rows if (r.get("period_months") or 12) >= 12] or rows
+        base = max(full_years, key=lambda r: _annual(r, "revenue") - _annual(r, "expenses"))
+        now = rows[-1]
+        if base is now:
+            base_is_now = True
+            continue
+        rev_g = _annual(now, "revenue") / _annual(base, "revenue") - 1
+        exp_g = _annual(now, "expenses") / _annual(base, "expenses") - 1
+        gap = exp_g - rev_g
+        if best is None or gap > best[0]:
+            best = (gap, base, exp_g, rev_g)
+    if best is None:
+        if base_is_now:
+            return Sig("X", 0.0, True, "best year is the latest year", c["reliability"])
         return Sig("X")
-    full_years = [r for r in rows if (r.get("period_months") or 12) >= 12] or rows
-    base = max(full_years, key=lambda r: _annual(r, "revenue") - _annual(r, "expenses"))
-    now = rows[-1]
-    if base is now:
-        return Sig("X", 0.0, True, "best year is the latest year", c["reliability"])
-    rev_g = _annual(now, "revenue") / _annual(base, "revenue") - 1
-    exp_g = _annual(now, "expenses") / _annual(base, "expenses") - 1
-    gap = exp_g - rev_g
+    gap, base, exp_g, rev_g = best
     return Sig("X", clamp(gap / c["full_gap"]), True,
                f"since {as_date(base['period_end']):%Y}: expenses {exp_g:+.1%}, revenue {rev_g:+.1%}", c["reliability"])
 

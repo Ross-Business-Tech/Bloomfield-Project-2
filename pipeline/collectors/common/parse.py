@@ -48,9 +48,19 @@ def to_date(value: Any) -> date | None:
             return value.to_pydatetime().date()
         except Exception:                                    # NaT
             return None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        # ArcGIS REST dates are epoch milliseconds (e.g. 1794441600000); epoch seconds also seen.
+        try:
+            secs = value / 1000 if value > 1e12 else value
+            return datetime.utcfromtimestamp(secs).date()
+        except (OverflowError, OSError, ValueError):
+            return None
     s = str(value).strip()
     if s.lower() in _NULLS:
         return None
+    if s.isdigit() and len(s) >= 10:
+        # the same epoch value as a string
+        return to_date(float(s))
     if re.match(r"\d{4}-\d{2}-\d{2}[T ]", s):
         s = s[:10]
     for fmt in _DATE_FORMATS:

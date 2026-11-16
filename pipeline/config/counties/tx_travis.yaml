@@ -25,13 +25,58 @@ sources:
     access: manual_inbox
     notes: "Texas Press Association public notice site and County Clerk foreclosure postings. Drop notices into data/inbox/public_notice/TX/<county>/."
   permits:                        # PRIORITY 2 -> I site inactivity + certificates of occupancy (NOT on NETR)
-    access: manual_inbox          # CANDIDATE for open_data_api: City of Austin "Issued Construction Permits" (BLDS)
-    url: "https://data.austintexas.gov"
+    access: open_data_api
+    url: "https://data.austintexas.gov/d/3syk-w9eu"
+    terms_url: "https://data.austintexas.gov/d/3syk-w9eu"   # dataset page; also https://data.austintexas.gov/stories/s/ranj-cccq (portal Terms of Use)
+    verified_terms: true          # Confirmed by the user (Vishwa) 2026-11-15 over iMessage: "we have check with
+                                  # every county beforehand and we a re approved for crawling api data scraping etc" and "Whatever goes".
+                                  # Terms evidence (observed 2026-11-15 via the dataset's own metadata,
+                                  # https://data.austintexas.gov/api/views/3syk-w9eu.json):
+                                  # license "Public Domain U.S. Government" (https://www.usa.gov/government-works), provenance "official",
+                                  # public viewer grants, official City of Austin attribution.
+    max_results: 1000             # saved-record cap per run (weekly lookback is ~2-4k permits)
+    api:
+      format: socrata
+      url: "https://data.austintexas.gov/resource/3syk-w9eu.json"
+      params:
+        $where: "issue_date >= '{since:%Y-%m-%dT00:00:00}'"
+        $order: "issue_date DESC"
+      limit_param: $limit
+      offset_param: $offset
+      page_size: 1000
+      max_pages: 20
+    fields:
+      record_id: permit_number
+      filing_date: issue_date
+      document_type: permit_type_desc
+      case_type: permit_class_mapped
+      parties: applicant_org
+      permit_number: permit_number
+      issued_date: issue_date
+      applied_date: applieddate
+      completed_date: completed_date
+      status: status_current
+      address: original_address1
+      city: original_city
+      state: original_state
+      zip: original_zip
+      permit_class: permit_class_mapped
+      permit_type: permittype
+      valuation: total_job_valuation
+      description: description
+      work_class: work_class
+      housing_units: housing_units
+      permit_type_desc: permit_type_desc
+    default_doc_category: building_permit   # rows with completed_date also yield certificate-of-occupancy rows in permits.py
+    skip_labels: ["Residential"]
     notes: >-
-      City of Austin "Issued Construction Permits" open dataset (BLDS standard: PermitNum, IssuedDate,
-      CompletedDate, ...). To automate: confirm the dataset id, its terms and field names on data.austintexas.gov,
-      then set access: open_data_api with api: {format: socrata, url: https://data.austintexas.gov/resource/<id>.json}
-      and default_doc_category: building_permit. Until then drop exports into data/inbox/permit/TX/<county>/.
+      City of Austin "Issued Construction Permits" (dataset 3syk-w9eu, verified live 2026-11-15: BLDS field names,
+      ~2,500 permits/month incl. commercial). Feeds filing_fields (building_permit + certificate_of_occupancy via
+      completed_date) for Travis County projects; a live test run collected 571 real permits for Nov 1-14, 2026.
+      This dataset has NO inspection-date columns, so the I signal's inspection feed stays unfed here; the Austin
+      Build + Connect portal (abc.austintexas.gov, linked per permit) is the lead if the team later adds
+      inspections by hand. Automated collection runs ONLY after a person confirms the terms and flips
+      verified_terms to true (see above).
 
 reference_sites:
   - {office: "Travis Central Appraisal District", phone: "(512) 834-9317", url: "https://www.traviscad.org/propertysearch",

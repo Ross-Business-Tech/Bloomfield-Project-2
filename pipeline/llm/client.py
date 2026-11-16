@@ -248,7 +248,24 @@ def _retry_delay_from_body(body: dict) -> float:
     return 0.0
 
 
-def _send_with_retries(provider, model, system_prompt, user_text, max_tokens, cfg, key, task=None):
+def _log_unknown_usage(con, task, provider, model, worst_in, max_tokens, cfg) -> float:
+    """A request was SENT but we cannot prove what it used: the answer never came back
+    (timeout / connection drop) or came back without usage numbers. The provider may
+    still bill it, so charge the FULL WORST CASE (estimated prompt + max output) -
+    the spending ledger never under-counts. Rows are marked unknown-usage-worst-case.
+    Returns the dollars charged."""
+    try:
+        charged = cost.record_usage(con, task, provider, model, worst_in, max_tokens,
+                                    "unknown-usage-worst-case", cfg)
+        log.warning("usage unknown for task=%s; charged the worst-case estimate", task)
+        return charged
+    except Exception:
+        log.exception("could not record unknown-usage worst case")
+        return 0.0
+
+
+def _send_with_retries(provider, model, system_prompt, user_text, max_tokens, cfg, key, task=None,
+                       con=None):
     """Send the request; retry on rate limits / server errors / timeouts with growing waits."""
     build, parse = PROVIDERS[provider]
     url, headers, payload = build(model, system_prompt, user_text, max_tokens, cfg, key, task)
@@ -264,6 +281,8 @@ def _send_with_retries(provider, model, system_prompt, user_text, max_tokens, cf
             status, body, resp_headers = _post_json(url, headers, payload, timeout)
         except (requests.Timeout, requests.ConnectionError) as e:
             problem = f"network problem ({type(e).__name__})"
+            _log_unknown_usage(con, task, provider, model,
+                               cost.estimate_tokens(system_prompt + user_text, cfg), max_tokens, cfg)
         else:
             if status == 200:
                 return parse(body)
@@ -333,12 +352,17 @@ def call_llm_detailed(task: str, system_prompt: str, user_text: str, max_output_
 
     # 3. The real call.
     text, in_tok, out_tok, truncated = _send_with_retries(
-        provider, model, system_prompt, user_text, max_output_tokens, cfg, api_key, task)
-    in_tok = int(in_tok) if in_tok is not None else est_in
-    out_tok = int(out_tok) if out_tok is not None else cost.estimate_tokens(text, cfg)
+        provider, model, system_prompt, user_text, max_output_tokens, cfg, api_key, task, con=con)
 
-    # 4. Record what it cost; cache the answer unless it was cut off.
-    spent = cost.record_usage(con, task, provider, model, in_tok, out_tok, file_hash, cfg)
+    # 4. Record what it cost; cache the answer unless it was cut off. An answered call
+    #    that did NOT report usage is charged at full worst case, never at a guess.
+    if in_tok is None or out_tok is None:
+        spent = _log_unknown_usage(con, task, provider, model, est_in, max_output_tokens, cfg)
+        in_tok = int(in_tok) if in_tok is not None else est_in
+        out_tok = int(out_tok) if out_tok is not None else max_output_tokens
+    else:
+        in_tok, out_tok = int(in_tok), int(out_tok)
+        spent = cost.record_usage(con, task, provider, model, in_tok, out_tok, file_hash, cfg)
     if con is not None and use_cache and not truncated:
         _cache_put(con, key_id, task, text, in_tok, out_tok)
     if truncated:
@@ -350,3 +374,111 @@ def call_llm(task: str, system_prompt: str, user_text: str, max_output_tokens: i
     """Simple form: returns (text, input_tokens, output_tokens). Same options as call_llm_detailed."""
     r = call_llm_detailed(task, system_prompt, user_text, max_output_tokens, **kwargs)
     return r.text, r.input_tokens, r.output_tokens
+
+
+# ---------------------------------------------------------------------------
+# Tool calling (used by the sourcing agent in agent/)
+# ---------------------------------------------------------------------------
+
+def _parse_tool_calls(message: dict) -> list[dict]:
+    """Normalize the assistant's tool calls to [{id, name, arguments(dict)}]."""
+    out = []
+    for tc in message.get("tool_calls") or []:
+        fn = tc.get("function") or {}
+        try:
+            args = json.loads(fn.get("arguments") or "{}")
+        except (TypeError, json.JSONDecodeError):
+            args = {"_unparseable_arguments": fn.get("arguments")}
+        out.append({"id": tc.get("id") or "", "name": fn.get("name") or "", "arguments": args})
+    return out
+
+
+def call_with_tools(task: str, system_prompt: str, messages: list[dict], tools: list[dict],
+                    max_output_tokens: int, *, con=None, cfg: dict | None = None,
+                    restricted: str | None = None) -> dict:
+    """
+    ONE step of a tool-calling conversation, through the OpenAI-compatible chat API (the U-M GPT
+    Toolkit default). `messages` is the running conversation WITHOUT the system message; this
+    function prepends it. Returns {"message": <assistant message dict>, "tool_calls": [...],
+    "text": <content or "">, "input_tokens": int, "output_tokens": int, "truncated": bool,
+    "cost_usd": float}.
+
+    Unlike call_llm() there is no cache (every step depends on the tool results before it), but
+    the spending cap and the usage log still apply, so an agent run can never break the budget.
+    Only openai_compatible is wired up: the Toolkit speaks that API. Other providers raise a
+    clear error instead of silently doing the wrong thing.
+    """
+    cfg = cfg or load_reader_config()
+    if restricted:
+        flag = {"bloomfield": "bloomfield_material_ai_allowed"}.get(restricted)
+        if flag is None or not cfg.get(flag, False):
+            raise RestrictedMaterialError(
+                f"Refusing to send {restricted} material to an outside AI service "
+                f"({flag or 'unknown category'} is false in config/reader.yaml).")
+    provider = provider_name(cfg)
+    if provider != "openai_compatible":
+        raise LLMConfigError(
+            f"Tool calling is only wired for the 'openai_compatible' provider (the U-M Toolkit); "
+            f"LLM_PROVIDER is '{provider}'. The plain reader still works with every provider.")
+    model = model_for_task(task, cfg)
+    api_key = get_api_key(provider)
+
+    oc = (cfg.get("llm") or {}).get("openai_compatible") or {}
+    base = (os.environ.get(oc.get("base_url_env", "LLM_BASE_URL"), "").strip()
+            or oc.get("default_base_url", "https://api.openai.com/v1")).rstrip("/")
+    payload = {"model": model,
+               "messages": [{"role": "system", "content": system_prompt}] + list(messages),
+               oc.get("max_tokens_field", "max_tokens"): max_output_tokens}
+    if tools:
+        payload["tools"] = tools
+        payload["tool_choice"] = "auto"
+    payload.update((cfg.get("llm") or {}).get("request_params") or {})
+    headers = {"Authorization": f"Bearer {api_key}", "content-type": "application/json"}
+
+    est_in = cost.estimate_tokens(system_prompt + json.dumps(messages), cfg)
+    cost.check_budget(con, model, est_in, max_output_tokens, cfg)
+
+    llm_cfg = cfg.get("llm") or {}
+    max_retries = int(llm_cfg.get("max_retries", 5))
+    base_delay = float(llm_cfg.get("backoff_base_seconds", 2))
+    timeout = float(llm_cfg.get("timeout_seconds", 120))
+    problem = ""
+    for attempt in range(max_retries + 1):
+        retry_after = 0.0
+        try:
+            status, body, resp_headers = _post_json(f"{base}/chat/completions", headers, payload, timeout)
+        except (requests.Timeout, requests.ConnectionError) as e:
+            problem = f"network problem ({type(e).__name__})"
+            _log_unknown_usage(con, task, provider, model, est_in, max_output_tokens, cfg)
+        else:
+            if status == 200:
+                choice = (body.get("choices") or [{}])[0]
+                message = choice.get("message") or {}
+                usage = body.get("usage") or {}
+                truncated = choice.get("finish_reason") == "length"
+                if usage.get("prompt_tokens") is None or usage.get("completion_tokens") is None:
+                    # answered but unmetered: charge the full worst case, never a guess
+                    spent = _log_unknown_usage(con, task, provider, model, est_in, max_output_tokens, cfg)
+                    in_tok, out_tok = est_in, max_output_tokens
+                else:
+                    in_tok = int(usage["prompt_tokens"])
+                    out_tok = int(usage["completion_tokens"])
+                    spent = cost.record_usage(con, task, provider, model, in_tok, out_tok,
+                                              hashlib.sha256(json.dumps(messages).encode()).hexdigest(), cfg)
+                if truncated:
+                    log.warning("agent step for task=%s was cut off at max_output_tokens=%d", task, max_output_tokens)
+                return {"message": message, "tool_calls": _parse_tool_calls(message),
+                        "text": message.get("content") or "", "input_tokens": in_tok,
+                        "output_tokens": out_tok, "truncated": truncated, "cost_usd": spent}
+            if status == 429 or status >= 500:
+                problem = f"HTTP {status}"
+                ra = str(resp_headers.get("retry-after", resp_headers.get("Retry-After", "")))
+                retry_after = min(float(ra), 60) if ra.replace(".", "", 1).isdigit() else _retry_delay_from_body(body)
+            else:
+                raise LLMError(f"{provider} rejected the request (HTTP {status}): "
+                               f"{_error_message(body, api_key)}")
+        if attempt < max_retries:
+            wait = max(retry_after, base_delay * (2 ** attempt)) + random.uniform(0, 0.5)
+            log.warning("%s from %s; retry %d/%d in %.0fs", problem, provider, attempt + 1, max_retries, wait)
+            _sleep(wait)
+    raise LLMError(f"{provider} still failing after {max_retries} retries ({problem}). Try again later.")

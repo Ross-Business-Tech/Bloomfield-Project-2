@@ -35,29 +35,37 @@ task_models:
   extract: strong           # turn a document into clean fields
   summary: strong           # plain-English flag summaries
   split_notices: strong     # split one newspaper page into separate notices
+  agent: cheap              # the sourcing agent (agent/): planning and evidence steps.
+                            # 2026-11-15 user decision: gpt-4o-mini for bulk research (~17x cheaper
+                            # than gpt-4o on the U-M Toolkit rate card) so the shortlist fits the
+                            # authorized budget; verification machinery is model-independent.
 
-# Price per MILLION tokens, in US dollars. Used only to ESTIMATE cost and enforce the cap.
+# Price per MILLION tokens, in US dollars. Used to ESTIMATE cost for accounting and advisory warnings.
 # !!! PLACEHOLDER NUMBERS - please check your provider's current price list and edit. !!!
 prices_per_million_tokens:
   claude-haiku-5-5:  { input: 1.00, output: 5.00 }
   claude-sonnet-5-5: { input: 3.00, output: 15.00 }
-  # Gemini 3.5 Flash / Flash-Lite: NO PRICE LISTED YET, so the (higher) default below is used for the cost cap.
-  # Look up Google's current prices and add lines like:   gemini-3.5-flash: { input: ..., output: ... }
+  # Gemini 3.5 Flash / Flash-Lite: NO PRICE LISTED BY GOOGLE YET, and this reader REFUSES
+  # unpriced models rather than guessing. Add Google's exact prices here before using gemini.
   # (thinking tokens are billed as output tokens)
   codex-mini-latest:     { input: 1.50, output: 6.00 }    # PLACEHOLDER: check the price list
   gpt-5-codex:           { input: 1.25, output: 10.00 }   # PLACEHOLDER: check the price list
-  gpt-4o-mini:           { input: 0.15, output: 0.60 }    # approximate: verify
-  gpt-4o:                { input: 2.50, output: 10.00 }   # approximate: verify
-  default:           { input: 3.00, output: 15.00 }   # used for any model not listed above
+  gpt-4o-mini:           { input: 0.15, output: 0.60 }    # VERIFIED vs U-M Toolkit pricing 2026-11-15: https://its.umich.edu/computing/ai/pricing
+  gpt-4o:                { input: 2.50, output: 10.00 }   # VERIFIED vs U-M Toolkit pricing 2026-11-15: https://its.umich.edu/computing/ai/pricing
+  # NO 'default' catch-all on purpose: a model with no exact price above is refused (llm/cost.py).
 
-# Spending limits (US dollars). The reader stops with a clear message instead of going over.
-weekly_cost_cap_usd: 10     # the program budget is $10 in total
-run_cost_cap_usd: 5      # one run can use at most half of it
+# Spending landmarks (US dollars), ADVISORY ONLY. The API account enforces its own
+# dollar limit (user decision 2026-11-15), so the code no longer stops calls at these
+# numbers - llm/cost.py logs a warning when spend passes them and keeps accounting.
+weekly_cost_cap_usd: 9.0
+run_cost_cap_usd: 5
 
 # How the wrapper talks to the service.
 llm:
   timeout_seconds: 180           # Gemini can take over a minute when Google is busy
-  max_retries: 5            # extra tries on rate limits (429) and server errors (5xx)
+  max_retries: 0            # money safety: NO automatic retries. Every attempt either returns
+                           # metered usage or is charged at full worst case (llm/client.py
+                           # _log_unknown_usage), so the ledger never under-counts the bill.
   backoff_base_seconds: 2   # wait 2s, 4s, 8s, 16s, 32s
   chars_per_token: 4        # rough estimate used BEFORE a call to check the cost cap
   openai_responses:

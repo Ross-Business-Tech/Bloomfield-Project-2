@@ -22,8 +22,11 @@ import re
 from datetime import date
 
 from collectors.common import db
+from collectors.common.log import get_logger
 
 from . import equation as eq
+
+log = get_logger("scorer.weekly")
 from .schema import open_db
 from .signals import filing_kind
 
@@ -90,6 +93,19 @@ CREATE TABLE IF NOT EXISTS research_log (
 RESEARCH_STATUSES = ["looked_into", "called", "meeting", "passed", "deal_closed"]
 STATUS_LABELS = {"looked_into": "Looked into", "called": "Called", "meeting": "Meeting set",
                  "passed": "Passed", "deal_closed": "Deal closed"}
+
+# CREFC loan payment status codes (SEC ABS-EE form), decoded so the context line is readable.
+PAYMENT_STATUS_LABELS = {
+    "0": "payments current",
+    "1": "30-59 days delinquent",
+    "2": "60-89 days delinquent",
+    "3": "90-120 days delinquent",
+    "4": "past maturity, still paying",
+    "5": "past maturity, NOT paying",
+    "6": "121+ days delinquent",
+    "A": "payment not received, in grace period",
+    "B": "late, under 30 days",
+}
 
 _TYPE_RULES = [
     ("student", "Student housing"), ("senior", "Senior housing"), ("assisted", "Senior housing"),
@@ -168,7 +184,8 @@ def context_facts(p) -> list[str]:
         if ln.get("watchlist_flag"):
             bits.append("on watchlist")
         if ln.get("payment_status"):
-            bits.append(str(ln["payment_status"]))
+            status = str(ln["payment_status"]).strip()
+            bits.append(PAYMENT_STATUS_LABELS.get(status, f"payment status {status}"))
         if bits:
             src = (ln.get("source") or "CMBS").lower()
             note = "everyone has this" if src in ("sec_edgar", "cmbs") else "public disclosure"
@@ -272,6 +289,13 @@ def run(con, cfg: dict | None = None, as_of: date | None = None, include_demo: b
     include_demo = include_demo_data() if include_demo is None else include_demo
     as_of = as_of or date.today()
     create_tables(con)
+    try:
+        from agent import mapping
+        applied = mapping.apply(con)          # fold new VERIFIED evidence into the scorer's inputs
+        if applied["mapped"]:
+            log.info("evidence mapped into scorer inputs: %s", applied)
+    except Exception:
+        log.exception("evidence mapping skipped")
     rents, market, inspections, extra = eq.load_inputs(con)
     from .group import group_properties
     props = group_properties(con)
@@ -281,13 +305,16 @@ def run(con, cfg: dict | None = None, as_of: date | None = None, include_demo: b
         if not include_demo and is_demo_property(p):
             continue                                  # sample data never appears in a real list
         r = eq.score_property(p, cfg, as_of, rents, market, inspections, extra)
-        if r.score <= 0 and not context_facts(p):
-            continue                              # nothing to show
         fx = r.facts
         ptype = property_type(p)
         current = [ln.get("current_balance") for ln in p.cmbs_loans if ln.get("current_balance")]
         amount = max(current) if current else fx.get("loan_amount")   # what's owed now, not the original amount
         shown, reason = passes_filters(ptype, fx.get("state"), amount, cfg["filters"])
+        if r.score <= 0 and not context_facts(p):
+            # Score EVERY property and keep the row: a zero-signal property is a real,
+            # honest result ("nothing found yet"), never silently dropped. It just does
+            # not appear on the ranked list.
+            shown, reason = False, "no distress signals or context yet (missing data is not proof of absence)"
         from . import creative as cr
         from . import valuation as val
         capacity, series = val.property_inputs(p, ptype, fx.get("state"), extra)
@@ -310,18 +337,29 @@ def run(con, cfg: dict | None = None, as_of: date | None = None, include_demo: b
         })
     # Every property that passes the filters is on the list. Ones with warning signs come first (highest score first);
     # properties we only know from public loan data (score 0) follow, best deal quality first, so they are not hidden.
+    # Equal scores and deal quality order by loan size (biggest first), the same tie-break score_all uses.
     ranked = sorted([x for x in rows if x["shown"]],
-                    key=lambda x: (-x["score"], -x["deal_quality"], x["property_id"]))
+                    key=lambda x: (-x["score"], -x["deal_quality"], -(x["loan_amount"] or 0), x["property_id"]))
     for i, x in enumerate(ranked, 1):
         x["rank"] = i
-    con.execute("DELETE FROM weekly_flags WHERE run_id = ?", [run_id])
-    con.execute("DELETE FROM weekly_runs WHERE run_id = ?", [run_id])
-    for x in rows:
-        cols = list(x)
-        con.execute(f"INSERT INTO weekly_flags ({', '.join(cols)}) VALUES ({', '.join('?' for _ in cols)})",
-                    [x[c] for c in cols])
-    con.execute("INSERT INTO weekly_runs VALUES (?, ?, ?, ?, ?, ?)",
-                [run_id, as_of, db.utc_now(), cfg["version"], json.dumps(cfg), len(ranked)])
+    # Replace the week's rows in ONE transaction: a crash or a container kill mid-write must
+    # never leave the week deleted-but-not-rebuilt (the dashboard then shows "No weekly run yet"
+    # even though the data is fine). With a transaction, an interrupted write simply never
+    # commits and the previous run's rows stay visible.
+    con.execute("BEGIN TRANSACTION")
+    try:
+        con.execute("DELETE FROM weekly_flags WHERE run_id = ?", [run_id])
+        con.execute("DELETE FROM weekly_runs WHERE run_id = ?", [run_id])
+        for x in rows:
+            cols = list(x)
+            con.execute(f"INSERT INTO weekly_flags ({', '.join(cols)}) VALUES ({', '.join('?' for _ in cols)})",
+                        [x[c] for c in cols])
+        con.execute("INSERT INTO weekly_runs VALUES (?, ?, ?, ?, ?, ?)",
+                    [run_id, as_of, db.utc_now(), cfg["version"], json.dumps(cfg), len(ranked)])
+        con.execute("COMMIT")
+    except Exception:
+        con.execute("ROLLBACK")
+        raise
     return run_id
 
 

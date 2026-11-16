@@ -181,9 +181,33 @@ def run_cycle(db_path: str | None = None) -> dict:
                  matcher_summary.get("records_linked", 0), matcher_summary.get("properties", 0))
 
         run_id = weekly.run(con, None, date.today())
+
+        # Sourcing agent: one bounded research pass over every scored property plus the
+        # unscored long tail, then a re-score so the ranking reflects the new evidence.
+        # Skipped (not fatal) when the agent is off or the step breaks; the pass enforces
+        # its own shape bounds from config/agent.yaml weekly_loop.
+        agent_summary: dict = {}
+        try:
+            from agent import loop as agent_loop
+            from agent import weekly as agent_weekly
+            acfg = agent_loop.load_agent_config()
+            if agent_loop.is_enabled(acfg):
+                _say("agent research pass start")
+                agent_summary = agent_weekly.run_pass(con, scorer_run=weekly.run)
+                _say(f"agent research pass done: {agent_summary.get('status')}, "
+                     f"{agent_summary.get('goals_run')} goals, "
+                     f"+{agent_summary.get('evidence_new')} evidence, "
+                     f"${agent_summary.get('est_cost_usd', 0):.2f} est")
+            else:
+                agent_summary = {"skipped": "agent off (BLOOMFIELD_AGENT / config/agent.yaml)"}
+        except Exception as e:
+            log.warning("agent step skipped this cycle: %s", e)
+            _say(f"agent research pass skipped: {e}")
+            agent_summary = {"skipped": str(e)}
+
         log.info("weekly cycle done: %d collector error(s), scoring run %s", errors, run_id)
         return {"collector_results": results, "errors": errors, "run_id": run_id,
-                "reader": reader_summary, "matcher": matcher_summary}
+                "reader": reader_summary, "matcher": matcher_summary, "agent": agent_summary}
     finally:
         con.close()
 

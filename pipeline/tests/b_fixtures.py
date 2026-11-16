@@ -8,9 +8,19 @@ from llm.settings import load_reader_config
 from scout_reader_schema import create_scout_reader_tables
 
 
+# TEST-ONLY stand-in prices for the gemini models: the shipped reader.yaml deliberately
+# leaves gemini unpriced (llm/cost.py REFUSES unpriced models), so tests that exercise
+# the gemini request/response plumbing inject an exact price here.
+GEMINI_TEST_PRICES = {"gemini-3.5-flash-lite": {"input": 0.10, "output": 0.40},
+                      "gemini-3.5-flash": {"input": 0.30, "output": 2.50}}
+
+
 def make_cfg(**overrides):
     """The real reader.yaml with a few values changed for a test (top-level keys only)."""
     cfg = copy.deepcopy(load_reader_config())
+    cfg.setdefault("prices_per_million_tokens", {})
+    for model, price in GEMINI_TEST_PRICES.items():
+        cfg["prices_per_million_tokens"].setdefault(model, price)
     cfg.update(overrides)
     return cfg
 

@@ -430,22 +430,21 @@ def test_javascript_only_web_page_is_flagged(bcon, fake_llm):
     assert "almost no readable text" in rows(bcon)[0][2]
 
 
-def test_cost_cap_stops_the_batch_with_a_clear_message(bcon, fake_llm):
+def test_advisory_weekly_cap_does_not_stop_the_batch(bcon, fake_llm):
+    # The API account enforces the real dollar limit; the code-level cap only warns.
     for i in range(3):
         add_raw(bcon, LIEN_TEXT + f"Instrument {i}\n")
     fake_llm.reply = lien_reply()
     s = batch.run(con=bcon, cfg=make_cfg(weekly_cost_cap_usd=0.001), progress=False, quiet=True)
-    assert s["processed"] == 0 and "weekly AI cost cap" in s["stopped"] and fake_llm.calls == []
+    assert s["processed"] == 3 and not s["stopped"] and len(fake_llm.calls) == 3
 
 
-def test_run_cap_stops_midway_and_keeps_finished_work(bcon, fake_llm):
+def test_advisory_run_cap_does_not_stop_the_batch(bcon, fake_llm):
     for i in range(4):
         add_raw(bcon, LIEN_TEXT + f"Instrument {i}\n")
     fake_llm.reply = lien_reply()
-    # each real call costs ~$0.0021; the worst-case estimate before a call is higher, so a $0.04 cap
-    # allows a few files and then stops
     s = batch.run(con=bcon, cfg=make_cfg(run_cost_cap_usd=0.045), progress=False, quiet=True)
-    assert 0 < s["processed"] < 4 and "per-run AI cost cap" in s["stopped"]
+    assert s["processed"] == 4 and not s["stopped"]
     assert len(rows(bcon)) == s["processed"]
 
 

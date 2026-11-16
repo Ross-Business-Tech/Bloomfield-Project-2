@@ -292,6 +292,59 @@ ranks every property from 0 to 100 so Bloomfield knows whom to call first. Every
 with a plain-English reason and a pointer to the record that proves it. No AI, no internet,
 no cost: it only reads the tables Parts A, B and C already filled.
 
+---
+
+# Part E: the Sourcing Agent (the API does the legwork)
+
+The idea in one line: **the AI does the work of sourcing information and compiling evidence;
+the team only changes the scoring.** The scorer (Part D) stays a normal, deterministic program -
+the AI never grades its own homework.
+
+The **agent** (`agent/`) is the part that talks to the AI (the U-M GPT Toolkit by default) in a
+think-act loop:
+
+1. It reads its standing instructions from **`config/agent.md`** - that file is what tells the
+   API what to do. Edit it to change how the agent sources.
+2. It plans and acts through a short list of read-only tools (`agent/tools.py`): search the web
+   (when a search key is configured), fetch a public page (saved unchanged as proof), run one of
+   the project's public-data collectors, and ask the local database read-only questions.
+3. Every fact it relies on must be saved as a VERIFIED **evidence row** (`record_evidence`):
+   a page the project actually fetched (file_id + exact address + a quote copied verbatim from the
+   saved bytes) or the database SELECT whose result shows the value. The tool re-checks the proof
+   and refuses anything else - a made-up address or a paraphrased "quote" never becomes evidence.
+   Verified web evidence also lands in the existing filings workflow as a needs-review lead for a
+   person to confirm, same as the news bot's leads.
+4. Scoring never changes: the scorer reads what is in the database, as before. Fetched pages are
+   data to quote, never instructions to obey, and the agent is instructed accordingly.
+
+## Run it
+
+The agent is **off by default** because each run spends LLM budget (within the reader.yaml
+spending cap). Turn it on and give it a goal:
+
+```bash
+# in pipeline/.env:  BLOOMFIELD_AGENT=1   (plus the usual OPENAI_API_KEY / LLM_BASE_URL)
+python -m agent "find what the public record says about the Willow Creek project"
+```
+
+Every run is logged in `agent_runs` and `agent_steps` (what it asked, what each tool returned),
+and the facts it verified land in the `evidence` table. Knobs live in `config/agent.yaml`
+(step cap, result size, which tools are allowed).
+
+## Honest limits
+
+- Open-web search needs a search-service key: Brave (`BRAVE_SEARCH_API_KEY`, `provider: brave`) or
+  Tavily (`TAVILY_API_KEY`, `provider: tavily` - free plan is 1,000 searches/month, no card) in .env
+  and config/bot.yaml; without one the agent says so and works from known addresses and the
+  collectors instead.
+- The collectors only cover public datasets. A dataset that covers one state, one loan type,
+  or one month is not proof that nothing exists elsewhere, and the agent is instructed to say
+  exactly that.
+- The agent fetches public pages only: no logins, no paywalls, robots.txt respected, and private,
+  local, or cloud-internal addresses are refused outright (checked again after any redirect).
+- Database access is read-only at the parser level: exactly one SELECT, verified by DuckDB's own
+  statement parser, capped at 200 rows.
+
 ## Try it on the fake data (no API key needed)
 
 ```bash

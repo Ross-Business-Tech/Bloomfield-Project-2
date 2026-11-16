@@ -1,0 +1,10 @@
+# Bloomfield Flags theme. Palette mirrors pipeline/dashboard/style.py.
+[theme]
+primaryColor = "#A88435"
+backgroundColor = "#FAF8F4"
+secondaryBackgroundColor = "#F1EDE4"
+textColor = "#152A42"
+font = "sans serif"
+
+[server]
+# keep default; set only look-related options here

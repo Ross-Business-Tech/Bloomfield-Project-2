@@ -26,6 +26,10 @@ def main() -> None:
 
     scheduler.ensure_started(os.environ.get("BLOOMFIELD_DB") or None, source="boot")
 
+    from dashboard import ingest_thread
+
+    ingest_thread.ensure_started(os.environ.get("BLOOMFIELD_DB") or None, source="boot")
+
     from streamlit.web import cli
 
     sys.argv = [

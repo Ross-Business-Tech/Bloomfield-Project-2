@@ -47,6 +47,51 @@ def test_weekly_run_filters_ranks_and_compares(tmp_path):
     assert len(ch["new"]) == 1 and ch["previous"] == "week-2026-11-02"
 
 
+def _cmbs_loan(con, key, addr, amount, name, **kw):
+    _add(con, "loans", loan_key=key, source="sec_edgar", deal_name="TEST TRUST 2026-T1", property_name=name,
+         property_address=addr, property_state="MI", property_type="MF", current_balance=amount,
+         original_balance=amount, report_period=date(2026, 10, 16), **kw)
+
+
+def test_equal_scores_rank_biggest_loan_first(tmp_path):
+    """Two score-0 CMBS properties with the same deal quality: the bigger loan ranks first, not a hash order."""
+    con = open_db(tmp_path / "t.duckdb")
+    weekly.create_tables(con)
+    _cmbs_loan(con, "edgar:T:small", "1 Small St", 3e6, "Small Plaza", dscr=1.4)
+    _cmbs_loan(con, "edgar:T:big", "2 Big St", 90e6, "Big Plaza", dscr=1.4)
+    run_id = weekly.run(con, None, date(2026, 11, 10))
+    rows = con.execute("SELECT property_name, rank, score FROM weekly_flags WHERE run_id = ? ORDER BY rank",
+                       [run_id]).fetchall()
+    assert [(r[0], r[1]) for r in rows] == [("Big Plaza", 1), ("Small Plaza", 2)]
+    assert all(r[2] == 0 for r in rows)                      # still score 0: the order comes from loan size
+
+
+def test_cmbs_payment_status_is_decoded_in_context(tmp_path):
+    """CREFC status codes are shown as plain English (context only, still not scored)."""
+    con = open_db(tmp_path / "t.duckdb")
+    weekly.create_tables(con)
+    _cmbs_loan(con, "edgar:T:late", "3 Late St", 5e6, "Late Plaza", payment_status="3")
+    _cmbs_loan(con, "edgar:T:ok", "4 Ok St", 5e6, "Ok Plaza", payment_status="0")
+    run_id = weekly.run(con, None, date(2026, 11, 10))
+    ctx = dict(con.execute("SELECT property_name, context FROM weekly_flags WHERE run_id = ?", [run_id]).fetchall())
+    assert "90-120 days delinquent" in ctx["Late Plaza"] and "payment status 3" not in ctx["Late Plaza"]
+    assert "payments current" in ctx["Ok Plaza"]
+
+
+def test_occupancy_slide_from_edgar_history_scores_above_zero(tmp_path):
+    """The occupancy history the Edgar collector appends feeds the Q signal: a real slide lifts the score."""
+    con = open_db(tmp_path / "t.duckdb")
+    weekly.create_tables(con)
+    _cmbs_loan(con, "edgar:T:slide", "5 Slide St", 5e6, "Slide Plaza", occupancy=0.60)
+    _add(con, "operating_metrics", link_id="edgar:T:slide", period_end=date(2026, 8, 16), period_months=1,
+         occupancy=0.95, source="sec_edgar")
+    _add(con, "operating_metrics", link_id="edgar:T:slide", period_end=date(2026, 10, 16), period_months=1,
+         occupancy=0.60, source="sec_edgar")
+    run_id = weekly.run(con, None, date(2026, 11, 10))
+    score, = con.execute("SELECT score FROM weekly_flags WHERE run_id = ?", [run_id]).fetchone()
+    assert 0 < score <= 30                                    # one creative signal, anti-fluked: watch-level, not hot
+
+
 def test_there_is_no_upper_limit_and_the_minimum_is_two_and_a_half_million():
     f = eq.load_equation_config()["filters"]
     assert f["min_loan_size"] == 2_500_000 and f["max_loan_size"] is None
@@ -103,6 +148,21 @@ def test_office_is_shown_by_default_and_can_be_hidden(tmp_path):
     assert "Property type" not in row
 
 
+def test_zero_signal_properties_are_scored_and_kept_not_dropped(tmp_path):
+    """Score EVERYTHING: a property with no signals and no context is still scored and stored -
+    'nothing found yet' is an honest, queryable result - it just stays off the ranked list."""
+    con = open_db(tmp_path / "t.duckdb")
+    weekly.create_tables(con)
+    _add(con, "recorded_loans", record_id="quiet1", loan_kind="refinance", recording_date=date(2010, 1, 1),
+         property_address="1 Quiet Way", state="MI", amount=5e6, grantee="Bank", grantor="Owner LLC")
+    run_id = weekly.run(con, eq.load_equation_config(), date(2026, 11, 2))
+    row = con.execute("SELECT score, shown, filter_reason, rank FROM weekly_flags WHERE run_id = ?", [run_id]).fetchone()
+    assert row is not None, "a zero-signal property must still be scored and stored, never silently dropped"
+    score, shown, reason, rank = row
+    assert score == 0 and not shown and rank is None
+    assert reason == "no distress signals or context yet (missing data is not proof of absence)"
+
+
 def test_properties_known_only_from_public_loan_data_are_listed_not_hidden(tmp_path):
     """Real SEC data gives loans with no early warning signs (score 0). They pass the filters, so they must be listed."""
     con = open_db(tmp_path / "t.duckdb")
@@ -123,3 +183,64 @@ def test_properties_known_only_from_public_loan_data_are_listed_not_hidden(tmp_p
     assert {"FAKE Promenade 0", "FAKE Promenade 1", "FAKE Promenade 3"} <= names     # $60M is no longer "too big"
     hidden = [r for r in rows if not r[1]]
     assert [r[0] for r in hidden] == ["FAKE Promenade 2"] and "below the $2.5M" in hidden[0][4]   # only the $2.4M loan is hidden
+
+
+def test_interrupted_publish_preserves_last_completed_run(tmp_path, monkeypatch):
+    """A failure inside the publish transaction (e.g. deploy kill surfaced as an error) must
+    roll back: the last completed run stays fully visible in weekly_runs and weekly_flags."""
+    con = open_db(tmp_path / "t.duckdb")
+    weekly.create_tables(con)
+    _add(con, "recorded_loans", record_id="a", loan_kind="construction", recording_date=date(2021, 1, 1),
+         property_address="1 A St", state="MI", amount=20e6, grantee="Bank", grantor="Owner LLC")
+    _add(con, "projects", project_id="pa", project_name="FAKE A", property_address="1 A St",
+         state="MI", property_type="multifamily", months_overdue=0.0, stale_candidate=False)
+    run1 = weekly.run(con, eq.load_equation_config(), date(2026, 11, 2))
+    before = con.execute("SELECT * FROM weekly_flags WHERE run_id = ?", [run1]).fetchall()
+
+    from collectors.common import db as _db
+    def boom():
+        raise RuntimeError("deploy killed the container here")
+    monkeypatch.setattr(_db, "utc_now", boom)          # fails inside the publish transaction
+    with pytest.raises(RuntimeError):
+        weekly.run(con, eq.load_equation_config(), date(2026, 11, 9))
+
+    assert con.execute("SELECT run_id FROM weekly_runs").fetchall() == [(run1,)]
+    assert con.execute("SELECT * FROM weekly_flags WHERE run_id = ?", [run1]).fetchall() == before
+    assert con.execute("SELECT count(*) FROM weekly_flags WHERE run_id = 'week-2026-11-09'").fetchone()[0] == 0
+    assert weekly.changes(con, run1)["current"] == run1          # app-facing view unaffected
+
+
+def test_process_kill_mid_swap_preserves_last_completed_run(tmp_path):
+    """A real process kill INSIDE the publish transaction (deploy swap) must leave the last
+    completed run visible: DuckDB rolls the uncommitted swap back on next open."""
+    import subprocess, sys, textwrap
+    con = open_db(tmp_path / "t.duckdb")
+    weekly.create_tables(con)
+    _add(con, "recorded_loans", record_id="a", loan_kind="construction", recording_date=date(2021, 1, 1),
+         property_address="1 A St", state="MI", amount=20e6, grantee="Bank", grantor="Owner LLC")
+    _add(con, "projects", project_id="pa", project_name="FAKE A", property_address="1 A St",
+         state="MI", property_type="multifamily", months_overdue=0.0, stale_candidate=False)
+    run1 = weekly.run(con, eq.load_equation_config(), date(2026, 11, 2))
+    n1 = con.execute("SELECT count(*) FROM weekly_flags WHERE run_id = ?", [run1]).fetchone()[0]
+    con.close()
+
+    killer = textwrap.dedent("""
+        import sys, os
+        from datetime import date
+        from collectors.common import db as _db
+        from scorer.schema import open_db
+        from scorer import weekly, equation as eq
+        _db.utc_now = lambda: os._exit(9)          # die inside the publish transaction
+        con = open_db(sys.argv[1])
+        weekly.create_tables(con)
+        weekly.run(con, eq.load_equation_config(), date(2026, 11, 9))
+    """)
+    r = subprocess.run([sys.executable, "-c", killer, str(tmp_path / "t.duckdb")],
+                       capture_output=True, text=True)
+    assert r.returncode != 0, f"killer process should have died: {r.stdout}{r.stderr}"
+
+    con = open_db(tmp_path / "t.duckdb")
+    assert con.execute("SELECT run_id FROM weekly_runs").fetchall() == [(run1,)]
+    assert con.execute("SELECT count(*) FROM weekly_flags WHERE run_id = ?", [run1]).fetchone()[0] == n1
+    assert con.execute("SELECT count(*) FROM weekly_flags WHERE run_id = 'week-2026-11-09'").fetchone()[0] == 0
+    assert weekly.changes(con, run1)["current"] == run1

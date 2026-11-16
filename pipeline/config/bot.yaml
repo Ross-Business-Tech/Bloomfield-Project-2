@@ -14,9 +14,12 @@ limits:
   max_search_queries: 20         # ...or sends more search queries than this
 
 search:
-  provider: none                 # none | brave   (set to brave once BRAVE_SEARCH_API_KEY is in .env)
+  provider: tavily               # none | brave | tavily   (key read from the api_key_env below; user-approved
+                                 # free Tavily account 2026-11-15, paid usage off - the key alone bills nothing)
   brave:
     api_key_env: BRAVE_SEARCH_API_KEY
+  tavily:                        # free plan: 1,000 searches/month, no card, cannot charge by default
+    api_key_env: TAVILY_API_KEY
     results_per_query: 5
   # Third-party listing sites forbid automated reading, so the bot never opens them.
   skip_domains: [zillow.com, apartments.com, trulia.com, realtor.com, redfin.com, facebook.com, instagram.com,

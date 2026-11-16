@@ -49,7 +49,9 @@ def test_the_ai_reads_the_crawled_page_and_the_property_is_scored(bcon, fake_llm
     p = bcon.execute("SELECT stated_opening_phrase, stale_candidate, months_overdue, notes FROM projects").fetchone()
     assert p[0] == "Opening Fall 2025." and p[1] and p[2] >= 10 and "AI reader" in p[3]
     assert bcon.execute("SELECT count(*) FROM project_snapshots").fetchone()[0] == 1
-    flag = bcon.execute("SELECT property_name, score, shown, rank FROM weekly_flags WHERE run_id = ?", [out["run_id"]]).fetchone()
+    # the same address can appear in more than one group (score 0 sibling); the RANKED row is the result
+    flag = bcon.execute("SELECT property_name, score, shown, rank FROM weekly_flags WHERE run_id = ? "
+                        "ORDER BY score DESC LIMIT 1", [out["run_id"]]).fetchone()
     assert flag[0] == "Riverbend Lofts" and flag[1] > 0 and flag[2] and flag[3] == 1   # ranked, with a score from the equation
 
 
