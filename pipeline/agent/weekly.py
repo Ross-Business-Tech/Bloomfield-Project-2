@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 import uuid
 from datetime import date, datetime, timezone
@@ -181,9 +182,38 @@ def _already_researched(con) -> set[str]:
     return found
 
 
-def _goal_for(c: dict) -> str:
+def _readiness_fn(con, cfg: dict | None):
+    """When weekly_loop.research_gates is on, each goal carries the research layer's current
+    depth + unmet lanes for that property, so the agent spends its bounded steps on the
+    checks the method says are missing. Read-only; a lookup failure degrades to no context."""
+    if not (cfg or agent_loop.load_agent_config()).get("weekly_loop", {}).get("research_gates"):
+        return lambda _pid: None
+    def look_up(property_id: str) -> dict | None:
+        try:
+            from research import gates as research_gates
+            return research_gates.readiness_for(con, property_id)
+        except Exception:
+            log.exception("research readiness lookup failed for %s", property_id)
+            return None
+    return look_up
+
+
+def _paid_opt_in() -> bool:
+    """Steering the agent toward extra checks spends search/model budget. The research chain
+    may only INITIATE that spend under the same paid-execution opt-in as discovery
+    (BLOOMFIELD_RESEARCH_PAID=1) - the pass's own existing budget is not a loophole."""
+    return os.environ.get("BLOOMFIELD_RESEARCH_PAID", "").strip() == "1"
+
+
+def _goal_for(c: dict, readiness: dict | None = None) -> str:
     where = ", ".join(x for x in [c.get("address"), c.get("city"), c.get("state")] if x)
     name = c.get("property_name") or where or c["property_id"]
+    gap = ""
+    if readiness and readiness.get("unmet") and _paid_opt_in():
+        gap = (f" The research layer tracks this property as {readiness['depth']} with these "
+               f"unmet lanes: {'; '.join(readiness['unmet'])}. Prioritize running and recording "
+               "those checks with verifiable sources; use record_research_check for the county "
+               "tax and lien checks so they count as qualified.")
     return (
         f"[property_id={c['property_id']}] Research the property \"{name}\""
         + (f" at {where}" if where else "")
@@ -195,6 +225,7 @@ def _goal_for(c: dict) -> str:
         "blocks you, say so honestly and move on. Work in as FEW steps as you can: two or three "
         "good searches and one or two page fetches are usually enough; stop as soon as you have "
         "saved what is verifiable or you know there is nothing to find."
+        + gap
     )
 
 
@@ -262,6 +293,7 @@ def run_pass(con, *, cfg: dict | None = None, limits: dict | None = None,
     baseline_usd = float(con.execute("SELECT COALESCE(sum(est_cost_usd), 0) FROM llm_usage").fetchone()[0])
 
     reserve = _goal_reserve_usd(agent_loop.load_agent_config() if cfg is None else cfg)
+    readiness_fn = _readiness_fn(con, cfg)
     goals_run = goals_skipped = 0
     stop = None
     sweeps = 0
@@ -303,7 +335,7 @@ def run_pass(con, *, cfg: dict | None = None, limits: dict | None = None,
                     break
             before = con.execute("SELECT count(*) FROM evidence").fetchone()[0]
             try:
-                result = agent_run(con, _goal_for(c))
+                result = agent_run(con, _goal_for(c, readiness=readiness_fn(c["property_id"])))
             except Exception:
                 # One bad goal must not kill the pass. The property stays pending so a
                 # later pass retries it, and the failure is counted honestly.
@@ -362,6 +394,36 @@ def run_pass(con, *, cfg: dict | None = None, limits: dict | None = None,
         "est_cost_usd": round(usage["est_cost_usd"], 4), "goal_reserve_usd": reserve,
         "sweeps": sweeps, "limits": limits,
     }
+    # Optional: refresh the research layer (stored-file lanes + depth gates) after the pass,
+    # so the method's evidence discipline runs in the same weekly cycle as the AI research.
+    # Off unless weekly_loop.research_gates: true in config/agent.yaml. Stored files and the
+    # database only - no network, no model calls, no scoring changes. Runs BEFORE the pass
+    # row is finalized so research_depth (or its error) is persisted, not only logged.
+    if (cfg or agent_loop.load_agent_config()).get("weekly_loop", {}).get("research_gates"):
+        try:
+            from research import agent_bridge as research_bridge
+            from research import drafts as research_drafts
+            from research import gates as research_gates
+            from research import ingest as research_ingest
+            from agent import tools as agent_tools
+            research_ingest.ingest(con)
+            # Fold this pass's verified agent output into the research layer (stored files and
+            # the database only - the bridge makes no network or model calls).
+            def _page_text(file_id):
+                try:
+                    text, _row = agent_tools._stored_page_text(con, file_id)
+                    return text
+                except Exception:
+                    return None
+            summary["agent_bridge"] = research_bridge.sync_pass(con, since=started_at,
+                                                                page_text_fn=_page_text)
+            summary["research_depth"] = {k: v for k, v in research_gates.evaluate_all(con).items() if v}
+            # Close the loop: Unscored assessment DRAFTS through the existing verified lane.
+            # No scores, no tiers - the tier rubric is not codified in this repo.
+            summary["research_drafts"] = research_drafts.prepare_drafts(con)
+        except Exception as e:   # the research hook must never kill a finished pass
+            log.exception("research_gates hook failed")
+            summary["research_depth_error"] = str(e)
     con.execute(
         "UPDATE weekly_research_passes SET finished_at=?, status=?, goals_run=?, "
         "goals_skipped=?, evidence_new=?, llm_calls=?, tokens=?, search_calls=?, summary=? "
