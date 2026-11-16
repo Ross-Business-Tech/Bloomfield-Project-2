@@ -196,4 +196,5 @@ def test_web_search_fails_loudly_when_the_key_is_missing(bcon, monkeypatch):
 
 def test_tool_schemas_match_dispatch(bcon):
     """Every schema the AI sees has a working branch in run_tool, and vice versa."""
-    assert set(tools.TOOL_NAMES) == {"web_search", "fetch_page", "run_collector", "query_db", "record_evidence"}
+    assert set(tools.TOOL_NAMES) == {"web_search", "fetch_page", "run_collector", "query_db",
+                                     "record_evidence", "record_research_check"}
