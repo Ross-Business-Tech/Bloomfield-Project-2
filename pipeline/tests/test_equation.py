@@ -92,8 +92,10 @@ def test_one_rent_reading_is_not_enough(cfg):
 def test_inspection_gap(cfg):
     permit = {"file_id": "f1", "filing_type": "building_permit", "permit_number": "BP-1", "filing_date": date(2024, 1, 5)}
     p = Property("a", filings=[permit])
-    quiet = eq.inspection_gap(p, cfg["inspection_gap"], {"BP-1": [date(2026, 5, 14)]}, AS_OF)   # 180 days
-    busy = eq.inspection_gap(p, cfg["inspection_gap"], {"BP-1": [date(2026, 10, 30)]}, AS_OF)
+    quiet = eq.inspection_gap(p, cfg["inspection_gap"], {"BP-1": [date(2026, 5, 14)]}, AS_OF,
+                              state="TX", coverage={"TX"})   # 180 days, coverage exists
+    busy = eq.inspection_gap(p, cfg["inspection_gap"], {"BP-1": [date(2026, 10, 30)]}, AS_OF,
+                             state="TX", coverage={"TX"})
     assert quiet.value == 1.0 and busy.value == 0
     done = Property("b", filings=[permit, {"file_id": "f2", "filing_type": "certificate_of_occupancy"}])
     assert eq.inspection_gap(done, cfg["inspection_gap"], {}, AS_OF).value == 0
@@ -247,3 +249,18 @@ def test_one_strong_creative_signal_is_boosted_even_with_low_reliability(cfg):
     assert q.value == 1.0 and r.C.value == pytest.approx(0.63)
     assert r.boosts["creative"] == pytest.approx(1.5) and "STANDOUT" in eq.flag_text(r)
     assert r.early == pytest.approx(30 * 0.63 * max(1.5, r.rescale), abs=0.1)    # was 30 x 0.63 x 0.5 x 2 = 18.9
+
+
+def test_inspection_gap_unknown_without_coverage(cfg):
+    # Permits exist but the market publishes no readable inspection records: permit age alone
+    # cannot establish inactivity, so I must report unknown, not a ramped score.
+    permit = {"file_id": "f1", "filing_type": "building_permit", "permit_number": "BP-1", "filing_date": date(2024, 1, 5)}
+    p = Property("a", filings=[permit])
+    none_anywhere = eq.inspection_gap(p, cfg["inspection_gap"], {}, AS_OF, state="TX", coverage=set())
+    wrong_state = eq.inspection_gap(p, cfg["inspection_gap"], {"OTHER-9": [date(2026, 1, 1)]}, AS_OF,
+                                    state="TX", coverage={"MI"})
+    assert not none_anywhere.known and none_anywhere.value == 0
+    assert not wrong_state.known
+    # Real inspection dates on THIS permit are evidence even without a coverage flag:
+    dated = eq.inspection_gap(p, cfg["inspection_gap"], {"BP-1": [date(2026, 5, 14)]}, AS_OF, state="TX")
+    assert dated.known and dated.value == 1.0

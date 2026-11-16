@@ -30,7 +30,7 @@ from scorer import weekly
 from scorer.schema import create_scorer_tables
 from scout_reader_schema import open_db
 
-from . import opening
+from . import discover, opening, rents
 from .run import load_config, run as run_bot
 
 log = get_logger("bot.full")
@@ -59,7 +59,11 @@ def run_full(con, bot_cfg: dict | None = None, signals: list[str] | None = None,
     ai = bool(use_ai and ready)
     out["ai"] = {"on": ai, "why": why if ready else why} if use_ai else {"on": False, "why": "switched off with --no-ai"}
 
+    disc = discover.discover(con)                       # new-build permits -> tracked projects (no watchlist needed)
+    out["discover"] = {"new_projects": disc.files_new, "errors": disc.errors[:3]}
     out["crawl"] = run_bot(con, bot_cfg, signals, today, session, defer_to_ai=ai)
+    rent_run = rents.collect(con, today=today)          # saved leasing pages -> rent_observations (R + K signals)
+    out["rents"] = {"pages_with_readings": rent_run.files_new, "errors": rent_run.errors[:3]}
     if ai:
         if reader_run is None:
             from reader import batch

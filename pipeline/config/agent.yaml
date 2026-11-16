@@ -1,0 +1,58 @@
+# ---------------------------------------------------------------------------
+# agent.yaml - settings for the sourcing agent (agent/). The agent's standing
+# INSTRUCTIONS live in config/agent.md; this file is only the knobs.
+# ---------------------------------------------------------------------------
+
+# ON: the user asked (2026-11-15) for the agent to research every property as part of the
+# normal pipeline. BLOOMFIELD_AGENT=0 in the environment does NOT turn it off (only the
+# =1 switch turns it on when this is false); set enabled back to false to stop it.
+# The dashboard scheduler runs one bounded research pass per weekly cycle after scoring.
+enabled: true
+
+# Most think-act steps in one run. Each step is one AI call plus its tool calls, so this is also
+# the brake on cost (the reader.yaml spending cap still applies on top).
+# 2026-11-15 user decision ("reduce cost as much as possible"): 12 -> 6. The goal already asks
+# for two or three searches and one or two fetches; 6 steps cover that with headroom.
+max_steps: 6
+
+# Longest single reply the AI may write per step (tokens).
+max_output_tokens: 1200   # 2026-11-15: trimmed 2000 -> 1200 (cost); answers stay short per agent.md
+
+# Tool results handed back to the AI are cut to this many characters (pages can be huge).
+max_tool_result_chars: 4000   # 2026-11-15: trimmed 6000 -> 4000 (cost); quotes stay verifiable
+
+# Which tools the agent may use (agent/tools.py). Remove a name to take that tool away.
+tools: [web_search, fetch_page, run_collector, query_db, record_evidence]
+
+# Bounded research pass (agent/weekly.py). The scheduler starts one pass per weekly cycle;
+# a person can also start one with python -m agent.weekly. It researches every scored
+# property plus the unscored long tail, one goal at a time, resuming via dedup markers,
+# and stops at the FIRST shape limit reached, or when a full sweep finds no new verified
+# evidence. Model calls/tokens are counted from the llm_usage ledger, searches from the
+# step log - enforced in code, never by the model. Sized so one pass can sweep the whole
+# live universe (857+ properties) in a few hours; every real call is still accounted.
+weekly_loop:
+  max_goals: 1000        # one research goal per candidate property, at most this many
+  max_model_calls: 10000 # total LLM calls across the whole pass (2026-11-15: sized for the
+                         # 761-flag shortlist at ~12 calls/goal, shortlist runs first)
+  max_total_tokens: 30000000   # total input+output tokens across the whole pass
+  max_search_calls: 3000 # total web searches (1 search = 1 search-provider credit; the free
+                         # Tavily monthly quota binds first and failures surface explicitly)
+  max_minutes: 1440      # wall-clock limit per pass (2026-11-15: 761 goals need 4-19h)
+  max_passes: 2          # sweeps over the candidate list per run
+  max_est_cost_usd: 9.0  # ADVISORY landmark only, NOT enforced. Passing it logs
+                         # a warning; llm_usage keeps the full accounting either way.
+  max_lifetime_est_usd: 8.50   # HARD backstop: stop before the next goal once lifetime est.
+                         # spend across ALL chargeable tasks plus the next goal's worst-case
+                         # reserve reaches this.
+  research_gates: false  # wire the research layer (pipeline/research/) into each pass:
+                         # (1) every goal carries that property's current research depth and unmet
+                         # lanes, so the agent spends its bounded steps on the checks the method
+                         # says are missing; (2) after the pass, evidence is rebuilt from the stored
+                         # CMS files and each property's depth (lead/partial/held/ready_for_review)
+                         # is re-derived into the summary. Database and stored files only - no
+                         # network, no model calls, no scoring changes. Off unless turned on here.
+  max_additional_est_usd: 4.51 # HARD stop, the binding one (2026-11-15 user decisions): the
+                         # account has 5.51 remaining (user-reported), 1.00 stays untouched,
+                         # so at most 4.51 NEW est. spend on top of the frozen pass-start
+                         # baseline; the next goal's worst-case reserve must fit inside it.

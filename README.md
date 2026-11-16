@@ -1,3 +1,5 @@
+> U-M Toolkit setup: [pipeline/UMICH-WORKFLOW.md](pipeline/UMICH-WORKFLOW.md).
+
 # Bloomfield Sourcing Tool
 
 A tool that finds commercial-property owners in financial trouble **before the broker network does**, for Bloomfield Capital.
@@ -18,6 +20,7 @@ Every week the tool runs the same chain, and a person checks the output at each 
 | **Bot** | Searchers for each signal: project websites ("coming soon" past the date), news and notices, plus the county, bank and SEC collectors. | `pipeline/bot/` |
 | **C. Link** | Joins records about the same property, loan, lender and company (parcel, then address, then fuzzy names). Unsure matches go to a person. | `pipeline/matcher/` |
 | **D. Score** | Ranks properties with the Bloomfield Opportunity Score and shows them, with evidence and an executive summary, in a researcher dashboard. | `pipeline/scorer/`, `pipeline/dashboard/` |
+| **Research layer** | The careful-analyst method: provenance-rich evidence, graded identity matching, primary financial records, counter-evidence, source reconciliation, and holds when sources conflict. Keeps partial research honest; never changes the score. | `pipeline/research/` |
 
 ## How we weight the signals
 
@@ -72,10 +75,10 @@ Sample (FAKE) properties are left out of every real list; the demo database opts
 
 ## Using the AI reader (needs a key)
 
-Every AI step uses the OpenAI Codex API through one wrapper (`pipeline/llm/client.py`).
+Every AI step defaults to U-M GPT Toolkit through one wrapper (`pipeline/llm/client.py`), using its OpenAI-compatible chat API.
 
 1. Copy `pipeline/.env.example` to `pipeline/.env` (the file is git-ignored and must never be committed).
-2. Put your key on the line `OPENAI_API_KEY=...`. Set `LLM_MODEL_CHEAP` and `LLM_MODEL_STRONG` to model names your key can use.
+2. Put your U-M Toolkit key on the line `OPENAI_API_KEY=...`. The defaults select `gpt-4o-mini` and `gpt-4o` at the U-M endpoint.
 3. Check it: `python -m llm.check`.
 
 Spending is capped in `pipeline/config/reader.yaml`: **$10 per week and $5 per run**. Anthropic and Gemini also work
@@ -117,6 +120,7 @@ Final scope (every signal, or one done exceptionally well) is decided before the
 ## Where things are
 
 - `pipeline/README.md`: detailed setup and per-part documentation.
+- `pipeline/research/README.md`: the deep research method, gate by gate.
 - `pipeline/scorer/EQUATION.md`: the Opportunity Score, term by term.
 - `pipeline/config/`: every number and switch (`scoring.yaml`, `equation.yaml`, `reader.yaml`, `bot.yaml`, `discovery.yaml`, `counties/`).
 - `pipeline/demo/`: the demo page, the mid-point slide deck, the call plan and the content they share (`content.json`).

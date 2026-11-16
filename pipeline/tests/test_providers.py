@@ -23,6 +23,18 @@ GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{}:generat
 def gemini(monkeypatch, fake_llm):
     monkeypatch.setenv("LLM_PROVIDER", "gemini")
     monkeypatch.setenv("GEMINI_API_KEY", "AIza-test-secret-key")
+    # TEST-ONLY exact stand-in prices: the shipped reader.yaml deliberately leaves gemini
+    # unpriced (unpriced models are refused), so inject a price for the plumbing tests.
+    from tests.b_fixtures import GEMINI_TEST_PRICES
+    def with_test_prices():
+        cfg = load_reader_config()
+        cfg.setdefault("prices_per_million_tokens", {}).update(GEMINI_TEST_PRICES)
+        return cfg
+    from reader import batch as reader_batch
+    monkeypatch.setattr(client, "load_reader_config", with_test_prices)
+    monkeypatch.setattr(cost, "load_reader_config", with_test_prices)
+    monkeypatch.setattr(llm_check, "load_reader_config", with_test_prices)
+    monkeypatch.setattr(reader_batch, "load_reader_config", with_test_prices)
     return fake_llm
 
 
@@ -83,7 +95,10 @@ def test_cheap_and_strong_models_come_from_the_gemini_list(gemini, bcon):
 
 def test_model_names_can_be_overridden_and_a_models_prefix_is_accepted(gemini, bcon, monkeypatch):
     monkeypatch.setenv("LLM_MODEL_STRONG", "models/gemini-2.5-pro")
-    client.call_llm("extract", "s", "t", 50, con=bcon, cfg=make_cfg())
+    cfg = make_cfg()   # an overridden model name needs an exact (test) price, like any model
+    cfg["prices_per_million_tokens"]["models/gemini-2.5-pro"] = {"input": 1.0, "output": 5.0}
+    cfg["prices_per_million_tokens"]["gemini-2.5-pro"] = {"input": 1.0, "output": 5.0}
+    client.call_llm("extract", "s", "t", 50, con=bcon, cfg=cfg)
     assert gemini.requests[0][0] == GEMINI_URL.format("gemini-2.5-pro")
 
 
@@ -108,7 +123,7 @@ def test_gemini_answer_and_token_counts_including_thinking(gemini, monkeypatch, 
     use(monkeypatch, gemini_ok("hello", prompt=1_000_000, out=0, thoughts=0))
     r = client.call_llm_detailed("extract", "s", "t", 100, con=bcon, cfg=make_cfg())
     assert (r.text, r.input_tokens, r.output_tokens) == ("hello", 1_000_000, 0)
-    assert r.cost_usd == pytest.approx(3.00)                                  # no price listed: the default $3 / million in
+    assert r.cost_usd == pytest.approx(0.30)                                  # the TEST stand-in price $0.30 / million in
     use(monkeypatch, gemini_ok("x", prompt=10, out=20, thoughts=500))         # thinking tokens are billed as output
     r = client.call_llm_detailed("extract", "s", "t2", 100, con=bcon, cfg=make_cfg())
     assert r.output_tokens == 520
@@ -155,14 +170,18 @@ def test_rate_limit_hint_in_the_error_body_is_honoured(gemini, monkeypatch, bcon
     body = {"error": {"code": 429, "message": "quota", "details": [{"@type": "type.googleapis.com/google.rpc.RetryInfo",
                                                                       "retryDelay": "34s"}]}}
     api = use(monkeypatch, (429, body, {}), gemini_ok())
-    assert client.call_llm("extract", "s", "t", 100, con=bcon, cfg=make_cfg())[0] == '{"a": 1}'
+    cfg = make_cfg()
+    cfg.setdefault("llm", {})["max_retries"] = 5       # exercise the mechanism, not the shipped default
+    assert client.call_llm("extract", "s", "t", 100, con=bcon, cfg=cfg)[0] == '{"a": 1}'
     assert len(api.calls) == 2 and waits and waits[0] >= 34
 
 
 def test_server_errors_are_retried_up_to_five_times(gemini, monkeypatch, bcon):
     api = use(monkeypatch, (503, {"error": {"message": "overloaded"}}, {}))
+    cfg = make_cfg()
+    cfg.setdefault("llm", {})["max_retries"] = 5       # exercise the mechanism, not the shipped default
     with pytest.raises(client.LLMError, match="5 retries"):
-        client.call_llm("extract", "s", "t", 100, con=bcon, cfg=make_cfg())
+        client.call_llm("extract", "s", "t", 100, con=bcon, cfg=cfg)
     assert len(api.calls) == 6
 
 
@@ -194,10 +213,10 @@ def test_private_material_is_still_refused_with_gemini(gemini, bcon):
     assert gemini.requests == []
 
 
-def test_the_cost_cap_still_applies_with_gemini(gemini, bcon):
-    with pytest.raises(cost.CostCapExceeded):
-        client.call_llm("extract", "s", "t" * 100, 1000, con=bcon, cfg=make_cfg(weekly_cost_cap_usd=0.0000001))
-    assert gemini.requests == []
+def test_the_advisory_cost_cap_does_not_block_gemini(gemini, bcon):
+    # Advisory only: the provider account enforces its own dollar limit.
+    client.call_llm("extract", "s", "t" * 100, 1000, con=bcon, cfg=make_cfg(weekly_cost_cap_usd=0.0000001))
+    assert len(gemini.requests) == 1
 
 
 # ---- the whole Reader, on every provider ----------------------------------------------------------------------------
@@ -209,6 +228,15 @@ def test_the_cost_cap_still_applies_with_gemini(gemini, bcon):
 def test_the_reader_works_end_to_end_on_each_provider(provider, key_var, model, marker, fake_llm, bcon, monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", provider)
     monkeypatch.setenv(key_var, "test-key")
+    if provider == "gemini":   # shipped reader.yaml leaves gemini unpriced; inject the TEST stand-in price
+        from tests.b_fixtures import GEMINI_TEST_PRICES
+        def with_test_prices():
+            cfg = load_reader_config()
+            cfg.setdefault("prices_per_million_tokens", {}).update(GEMINI_TEST_PRICES)
+            return cfg
+        monkeypatch.setattr(client, "load_reader_config", with_test_prices)
+        monkeypatch.setattr(cost, "load_reader_config", with_test_prices)
+        monkeypatch.setattr(batch, "load_reader_config", with_test_prices)
     fid = add_raw(bcon)
     fake_llm.reply = lien_reply()
     s = batch.run(con=bcon, progress=False, quiet=True)
@@ -272,16 +300,25 @@ def test_parts_c_and_d_never_call_an_ai():
             assert "call_llm" not in text, path
 
 
-def test_an_unpriced_model_warns_only_once(gemini, bcon, caplog):
-    cost._warned_models.clear()
-    with caplog.at_level("WARNING"):
-        for i in range(3):
-            client.call_llm("extract", "s", f"t{i}", 50, con=bcon, cfg=make_cfg())
-    assert sum("no price listed" in m for m in caplog.messages) == 1
+def test_an_unpriced_model_is_refused_before_any_spend(gemini, bcon):
+    # gemini models have no exact price in the shipped reader.yaml, so every call must
+    # be refused with a clear error - never guessed - until someone adds real prices.
+    cfg = make_cfg()
+    for m in ("gemini-3.5-flash-lite", "gemini-3.5-flash"):
+        cfg["prices_per_million_tokens"].pop(m, None)   # back to the shipped (unpriced) state
+    with pytest.raises(ValueError, match="no exact price"):
+        client.call_llm("extract", "s", "t", 50, con=bcon, cfg=cfg)
+    assert bcon.execute("SELECT count(*) FROM llm_usage").fetchone()[0] == 0
 
 
 def test_every_provider_has_models_and_prices_in_the_shipped_config():
     cfg = load_reader_config()
     for provider in client.PROVIDERS:
         assert set(cfg["models"][provider]) == {"cheap", "strong"}
-    assert "default" in cfg["prices_per_million_tokens"]          # models without their own price use this one
+    priced = cfg["prices_per_million_tokens"]
+    assert "default" not in priced      # no catch-all price: unpriced models are REFUSED, never guessed
+    for provider, pair in cfg["models"].items():
+        if provider == "gemini":
+            continue                    # intentionally unpriced until Google publishes rates; calls are refused
+        for tier, model in pair.items():
+            assert model in priced, f"{provider}.{tier}={model} configured but has no exact price in reader.yaml"

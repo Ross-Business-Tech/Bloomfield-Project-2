@@ -25,6 +25,8 @@ VALID_SOURCES = {
     "cms", "sec_edgar", "ffiec", "manual_upload",
     # added by Part B (the scout):
     "project_site", "news", "auction", "wsj_notice",
+    # added by the AI agent (agent/): public pages the agent fetched while sourcing evidence
+    "agent_web",
 }
 VALID_DOC_CATEGORIES = {
     "foreclosure_notice", "receivership", "lender_lawsuit", "lis_pendens",
@@ -32,6 +34,8 @@ VALID_DOC_CATEGORIES = {
     "certificate_of_occupancy", "permit_inspection", "license_action", "business_record", "other",
     # added by Part B (the scout):
     "project_website", "news_article", "auction_listing", "ucc_sale_notice",
+    # added by the AI agent (agent/): a public page fetched while compiling evidence
+    "web_page",
 }
 VALID_LOAN_KINDS = {
     "construction", "permanent", "extension", "modification",

@@ -31,7 +31,7 @@ BASE = "https://notices.example.gov"
 SEARCH = BASE + "/search?from={}&to={}&page=1"
 
 SCRAPE_SRC = {
-    "access": "scrape", "base_url": BASE,
+    "access": "scrape", "base_url": BASE, "verified_terms": True,
     "search_url": "/search?page={page}",
     "layout": "table",
     "selectors": {"row": "table.results tr.case", "record_id": "td.case-no", "filing_date": "td.filed",
@@ -150,7 +150,7 @@ def test_a_row_selector_that_matches_nothing_at_all(con, env, tmp_path):
 
 def test_unknown_access_mode_and_missing_fields_are_reported(con, env, tmp_path):
     cfg = {"county": "X County", "state": "MI", "sources": {"court": {"access": "telepathy"},
-           "recorder": {"access": "scrape"}}}
+           "recorder": {"access": "scrape", "verified_terms": True}}}
     run = county.collect(con, session=site(), config_dir=make_dir(tmp_path, {"mi_x": cfg}))
     assert len(run.errors) == 2 and "unknown access mode" in run.errors[0]
 
@@ -198,7 +198,7 @@ API_URL = "https://data.example.gov/resource/abcd-1234.json"
 
 def api_cfg(fmt="socrata"):
     return {"county": "Pinellas County", "state": "FL", "fips": "12103", "status": "configured", "sources": {"court": {
-        "access": "open_data_api", "base_url": "https://data.example.gov",
+        "access": "open_data_api", "base_url": "https://data.example.gov", "verified_terms": True,
         "api": {"format": fmt, "url": API_URL, "params": {"$where": "filed >= '{since:%Y-%m-%d}'"},
                 "limit_param": "$limit", "offset_param": "$offset", "page_size": 2, "max_pages": 3,
                 **({"records_path": "data.items"} if fmt == "json" else {})},
@@ -263,6 +263,33 @@ def test_statewide_config_runs_once_for_the_state_and_filters_work(con, env, tmp
     assert session.requested.count(BASE + "/search?page=1") == 3          # statewide once + two counties, not x3 per county
 
 
+def test_arcgis_epoch_dates_and_field_mapping():
+    # Miami-Dade's permits layer returns ArcGIS epoch-millisecond dates.
+    from collectors.common.parse import to_date
+    assert to_date(1794441600000) == date(2026, 11, 12)
+    assert to_date(1794441600) == date(2026, 11, 12)          # epoch seconds also seen
+    assert to_date("1794441600000") == date(2026, 11, 12)    # same value as a string
+    assert to_date(None) is None
+
+
+def test_miami_dade_permits_config_maps_arcgis_rows():
+    src = {"api": {"format": "arcgis"},
+           "fields": {"record_id": "PROCNUM", "filing_date": "ISSUDATE", "parties": "CONTRNAME",
+                      "document_type": "TYPE", "case_type": "RESCOMM"}}
+    payload = {"features": [{"attributes": {"PROCNUM": "C2027019747", "ISSUDATE": 1794441600000,
+                                            "CONTRNAME": "FAKE BUILDER LLC", "TYPE": "BLDG",
+                                            "RESCOMM": "C"}}]}
+    rows = county.api_records(payload, src["api"])
+    rec = county.map_api_row(rows[0], src["fields"], "https://gisweb.miamidade.gov")
+    assert rec["record_id"] == "C2027019747"
+    assert county.parse_filing_date(rec["filing_date"], src) == date(2026, 11, 12)
+    assert county.classify(rec, {**src, "skip_labels": [" R$"],
+                                 "default_doc_category": "building_permit"}) == "building_permit"
+    rec["case_type"] = "R"
+    assert county.classify(rec, {**src, "skip_labels": [" R$"],
+                                 "default_doc_category": "building_permit"}) is None
+
+
 def test_template_files_are_ignored(tmp_path):
     folder = make_dir(tmp_path, {"_template": {"county": "X"}, "mi_x": {"county": "X County", "state": "MI"}})
     assert [c["id"] for c in county.load_configs(folder)] == ["mi_x"]
@@ -278,7 +305,12 @@ def test_shipped_configs_cover_the_five_sample_counties_and_are_all_manual_for_n
     for c in cfgs.values():
         assert c["status"] == "manual_inbox" if not c.get("statewide") else True
         for section, src in c["sources"].items():
-            assert section in county.SECTION_SOURCE and src["access"] == "manual_inbox"   # nothing automated until checked
+            assert section in county.SECTION_SOURCE
+            if src["access"] != "manual_inbox":
+                # The configured automations. Each may run only with verified_terms: true, which the
+                # user confirmed in writing on 2026-11-15 after reviewing the terms evidence in the notes.
+                assert (c["id"], section) in {("tx_travis", "permits"), ("fl_miami_dade", "permits")}
+                assert src.get("verified_terms") is True
 
 
 def test_template_is_valid_yaml_with_every_section():
@@ -350,3 +382,26 @@ def test_sample_counties_follow_bloomfields_priorities():
     for st in {c["state"] for c in counties}:
         offices = " ".join(s["office"] for s in cfgs[f"{st.lower()}_statewide"]["reference_sites"]).lower()
         assert "ucc" in offices and ("entity" in offices or "corporation" in offices)
+
+
+# ---- terms-of-use gate ----------------------------------------------------------------------------------
+def test_configured_automation_without_verified_terms_falls_back_to_the_inbox(con, env, tmp_path):
+    """A county YAML may describe a scrape/API, but until a person confirms the site's terms
+    (verified_terms: true) the collector stays on the manual inbox and says why."""
+    cfg = washtenaw()
+    del cfg["sources"]["public_notice"]["verified_terms"]
+    folder = make_dir(tmp_path, {"mi_washtenaw": cfg})
+    session = site()
+    run = county.collect(con, session=session, config_dir=folder)
+    assert files(con) == []                                  # nothing scraped
+    assert BASE + "/search?page=1" not in session.requested  # no page was even requested
+    assert any("terms of use" in reason for _, reason in run.fallbacks)
+
+
+def test_verified_terms_lets_the_configured_scrape_run(con, env, tmp_path):
+    """The same source with verified_terms: true runs normally (covered by the scrape tests above;
+    this pins the gate's positive branch)."""
+    folder = make_dir(tmp_path, {"mi_washtenaw": washtenaw()})
+    run = county.collect(con, session=site(), config_dir=folder)
+    assert run.files_new == 2
+    assert not any("terms of use" in reason for _, reason in run.fallbacks)

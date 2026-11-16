@@ -274,6 +274,25 @@ def process_filing(con, run, filing: Filing, cfg: dict, session=None) -> None:
         run.new_file() if res.status == "new" else run.skipped()
 
 
+def write_operating_metrics(con, result: ParseResult) -> int:
+    """Also feed each loan's occupancy report into operating_metrics, one row per loan per report
+    period. Signal Q (occupancy slide) reads the HISTORY there; the loans table keeps only the newest
+    report. ABS-EE has no NOI/revenue/expense tags (see config/edgar.yaml), so only occupancy is fed -
+    the income-erosion and cost-squeeze signals stay unfed rather than guessing."""
+    from scorer.equation import create_equation_tables
+    create_equation_tables(con)
+    written = 0
+    for r in result.rows:
+        if r.get("occupancy") is None or not r.get("report_period"):
+            continue
+        con.execute("DELETE FROM operating_metrics WHERE link_id = ? AND period_end = ? AND source = 'sec_edgar'",
+                    [r["loan_key"], r["report_period"]])
+        con.execute("INSERT INTO operating_metrics (link_id, period_end, period_months, occupancy, source, file_id) "
+                    "VALUES (?, ?, 12, ?, 'sec_edgar', ?)", [r["loan_key"], r["report_period"], r["occupancy"], r["file_id"]])
+        written += 1
+    return written
+
+
 def load_file(con, run, file_id: str, path: Path, deal_name: str, cfg: dict) -> int:
     result = parse_asset_xml(path, cfg, deal_name=deal_name, file_id=file_id)
     if not result.rows:
@@ -282,18 +301,24 @@ def load_file(con, run, file_id: str, path: Path, deal_name: str, cfg: dict) -> 
         return 0
     audit_tags(result, cfg)
     written = write_loans(con, result)
+    write_operating_metrics(con, result)
     log.info("%s: %d loans read, %d written", deal_name, len(result.rows), written)
     return written
 
 
 def load_unparsed_manual_files(con, run, cfg: dict) -> int:
     """
-    Parse EX-102 XML files that were saved by hand (data/inbox/sec_edgar/) or whose loans were never
-    written because a run crashed. The trust name comes from the notes: "deal=<name>".
+    Parse EX-102 XML files that were saved by hand (data/inbox/sec_edgar/), whose loans were never
+    written because a run crashed, or that predate the operating_metrics occupancy bridge (backfill).
+    The trust name comes from the notes: "deal=<name>".
     """
+    # Files with no operating_metrics row get (re)parsed: that covers hand-saved files, crashed runs,
+    # and the one-time backfill of files collected before the occupancy bridge existed.
+    from scorer.equation import create_equation_tables
+    create_equation_tables(con)
     rows = con.execute(
         "SELECT r.file_id, r.file_path, r.notes FROM raw_files r WHERE r.source = 'sec_edgar' AND r.file_type = 'xml' "
-        "AND NOT EXISTS (SELECT 1 FROM loans l WHERE l.file_id = r.file_id)").fetchall()
+        "AND NOT EXISTS (SELECT 1 FROM operating_metrics m WHERE m.file_id = r.file_id)").fetchall()
     n = 0
     for file_id, file_path, notes in rows:
         m = re.search(r"deal=([^;]+)", notes or "")

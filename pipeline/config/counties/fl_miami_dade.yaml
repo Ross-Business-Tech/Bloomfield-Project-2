@@ -24,14 +24,43 @@ sources:
     access: manual_inbox
     notes: "Florida Press Association public notice site (floridapublicnotices.com). Drop notices into data/inbox/public_notice/FL/<county>/."
   permits:                        # PRIORITY 2 -> I site inactivity + certificates of occupancy (NOT on NETR)
-    access: manual_inbox          # CANDIDATE for open_data_api: Miami-Dade Open Data Hub (ArcGIS)
-    url: "https://gis-mdc.opendata.arcgis.com"
+    access: open_data_api
+    verified_terms: true          # Confirmed by the user (Vishwa) 2026-11-15 over iMessage: "Yes we a pprove" to the
+                                  # specific question covering Miami-Dade + Pinellas + Washtenaw terms findings, and "we have
+                                  # check with every county beforehand and we a re approved for crawling api data scraping etc".
+                                  # Terms evidence reviewed 2026-11-15 (notes below).
+    base_url: "https://gisweb.miamidade.gov"
+    api:
+      format: arcgis
+      url: "https://gisweb.miamidade.gov/ArcGIS/rest/services/MD_LandInformation/MapServer/1/query"
+      params:
+        where: "ISSUDATE >= DATE '{since:%Y-%m-%d}' AND ISSUDATE <= DATE '{until:%Y-%m-%d}'"
+        outFields: "PROCNUM,ADDRESS,TYPE,ISSUDATE,BPSTATUS,RESCOMM,CONTRNAME,PROPUSE,FOLIO"
+        orderByFields: "ISSUDATE DESC"
+        f: "json"
+      limit_param: "resultRecordCount"
+      offset_param: "resultOffset"
+      page_size: 500
+      max_pages: 5
+    fields:
+      record_id: PROCNUM
+      filing_date: ISSUDATE          # ArcGIS epoch milliseconds (to_date handles it)
+      parties: CONTRNAME
+      document_type: TYPE
+      case_type: RESCOMM             # R = residential, C = commercial
+      address: ADDRESS
+    skip_labels: [' R$']             # label is "<TYPE> <R|C>"; skip residential permits
+    default_doc_category: building_permit
+    max_results: 500
     notes: >-
-      Miami-Dade County Open Data Hub has building-permit and certificate-of-occupancy datasets (ArcGIS); the City of
-      Miami publishes its own "Building Permits Since 2014" layer (https://www.miami.gov/Maps-Data/Data-Explorer).
-      To automate: confirm each dataset's URL, terms and field names, then set access: open_data_api with
-      api: {format: arcgis, url: <layer>/query} (default_doc_category: building_permit, or certificate_of_occupancy
-      for the CO dataset). Until then drop exports into data/inbox/permit/FL/<county>/.
+      County Building Permits layer (MD_LandInformation MapServer layer 1), confirmed live 2026-11-15:
+      fields PROCNUM / ISSUDATE (epoch ms) / RESCOMM / BPSTATUS / CONTRNAME; a sample query returned
+      current permits. Terms reviewed 2026-11-15: the Miami-Dade Open Data Hub Terms of Use are
+      accuracy-only "as is" disclaimers - no auth, no automation or commercial restriction
+      (https://opendata.miamidade.gov/pages/terms-of-use~334b499403ed48e39fbe7853d5ee789c).
+      Manual fallback stays available at data/inbox/permit/FL/<county>/ for anything the API misses.
+      Later adds: certificate-of-occupancy dataset; City of Miami's own "Building Permits Since 2014"
+      layer (https://www.miami.gov/Maps-Data/Data-Explorer).
 
 reference_sites:
   - {office: "Property Appraiser", phone: "(305) 375-4712", url: "https://www.miamidade.gov/Apps/PA/propertysearch/#/",

@@ -22,14 +22,14 @@ from __future__ import annotations
 import argparse
 from datetime import date
 
-from collectors import county, edgar, ffiec, permits, state
+from collectors import cms_ops, county, edgar, ffiec, market_rents, permits, state
 from collectors.common import db, inbox
 from collectors.common.log import RunTracker, get_logger, setup_logging
 
 log = get_logger("run_all")
 
-ORDER = ["inbox", "edgar", "ffiec", "county", "recorded_loans", "liens", "permits", "state"]
-NATIONAL = {"edgar", "ffiec", "state"}          # always every state: skipped by --state
+ORDER = ["inbox", "edgar", "ffiec", "county", "recorded_loans", "liens", "permits", "state", "market_rents", "cms_ops"]
+NATIONAL = {"edgar", "ffiec", "state", "market_rents", "cms_ops"}          # always every state: skipped by --state
 NOT_BUILT = {"recorded_loans", "liens"}
 
 
@@ -46,6 +46,8 @@ RUNNERS = {
     "county": lambda con, a: county.collect(con, state=a.state, county=a.county, since=a.since),
     "permits": lambda con, a: permits.collect(con),   # permit files (from county "permits" sources / inbox) -> tables
     "state": lambda con, a: state.collect(con),
+    "market_rents": lambda con, a: market_rents.collect(con),
+    "cms_ops": lambda con, a: cms_ops.collect(con),
 }
 
 

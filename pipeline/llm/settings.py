@@ -24,7 +24,7 @@ def load_reader_config(path: str | Path | None = None) -> dict:
 
 def provider_name(cfg: dict) -> str:
     """LLM_PROVIDER in .env wins over reader.yaml."""
-    return (os.environ.get("LLM_PROVIDER") or cfg.get("provider") or "anthropic").strip().lower()
+    return (os.environ.get("LLM_PROVIDER") or cfg.get("provider") or "openai_compatible").strip().lower()
 
 
 def model_for_task(task: str, cfg: dict) -> str:

@@ -3,12 +3,12 @@
 # Change values here instead of changing Python code.
 # ---------------------------------------------------------------------------
 
-# Which AI service to call: "openai_responses" (OpenAI Codex API, the default), "openai_compatible" (OpenAI chat
-# completions or any OpenAI-style service), "anthropic" or "gemini" (Google).
+# Default: U-M GPT Toolkit through its OpenAI-compatible chat API.
+# Other supported providers: openai_responses (OpenAI platform), anthropic, gemini.
 # (Can be overridden with LLM_PROVIDER in .env, which is the easy way to switch.)
 # EVERY AI STEP in this project (the reader, the scout, the summaries) reads its key from the environment variable
-# OPENAI_API_KEY. It is a placeholder: put your real key in pipeline/.env, never in code or in the repo.
-provider: openai_responses
+# OPENAI_API_KEY for the default U-M provider. Put the real key in pipeline/.env, never in code or the repo.
+provider: openai_compatible
 
 # Model names PER PROVIDER, so switching provider also switches models. "cheap" does quick yes/no style jobs;
 # "strong" does careful extraction. The AI Sprint manager may change these; nothing in the code hardcodes a model.
@@ -24,7 +24,7 @@ models:
   openai_responses:                # the Codex API. TODO verify: set these to the Codex model names your key can use
     cheap: codex-mini-latest       # (or override in .env with LLM_MODEL_CHEAP / LLM_MODEL_STRONG, then run python -m llm.check)
     strong: gpt-5-codex
-  openai_compatible:               # e.g. OpenAI itself, or Gemini through Google's OpenAI-compatible address
+  openai_compatible:               # U-M Toolkit, verified with the project credential
     cheap: gpt-4o-mini
     strong: gpt-4o
 
@@ -35,29 +35,37 @@ task_models:
   extract: strong           # turn a document into clean fields
   summary: strong           # plain-English flag summaries
   split_notices: strong     # split one newspaper page into separate notices
+  agent: cheap              # the sourcing agent (agent/): planning and evidence steps.
+                            # 2026-11-15 user decision: gpt-4o-mini for bulk research (~17x cheaper
+                            # than gpt-4o on the U-M Toolkit rate card) so the shortlist fits the
+                            # authorized budget; verification machinery is model-independent.
 
-# Price per MILLION tokens, in US dollars. Used only to ESTIMATE cost and enforce the cap.
+# Price per MILLION tokens, in US dollars. Used to ESTIMATE cost for accounting and advisory warnings.
 # !!! PLACEHOLDER NUMBERS - please check your provider's current price list and edit. !!!
 prices_per_million_tokens:
   claude-haiku-5-5:  { input: 1.00, output: 5.00 }
   claude-sonnet-5-5: { input: 3.00, output: 15.00 }
-  # Gemini 3.5 Flash / Flash-Lite: NO PRICE LISTED YET, so the (higher) default below is used for the cost cap.
-  # Look up Google's current prices and add lines like:   gemini-3.5-flash: { input: ..., output: ... }
+  # Gemini 3.5 Flash / Flash-Lite: NO PRICE LISTED BY GOOGLE YET, and this reader REFUSES
+  # unpriced models rather than guessing. Add Google's exact prices here before using gemini.
   # (thinking tokens are billed as output tokens)
   codex-mini-latest:     { input: 1.50, output: 6.00 }    # PLACEHOLDER: check the price list
   gpt-5-codex:           { input: 1.25, output: 10.00 }   # PLACEHOLDER: check the price list
-  gpt-4o-mini:           { input: 0.15, output: 0.60 }    # approximate: verify
-  gpt-4o:                { input: 2.50, output: 10.00 }   # approximate: verify
-  default:           { input: 3.00, output: 15.00 }   # used for any model not listed above
+  gpt-4o-mini:           { input: 0.15, output: 0.60 }    # VERIFIED vs U-M Toolkit pricing 2026-11-15: https://its.umich.edu/computing/ai/pricing
+  gpt-4o:                { input: 2.50, output: 10.00 }   # VERIFIED vs U-M Toolkit pricing 2026-11-15: https://its.umich.edu/computing/ai/pricing
+  # NO 'default' catch-all on purpose: a model with no exact price above is refused (llm/cost.py).
 
-# Spending limits (US dollars). The reader stops with a clear message instead of going over.
-weekly_cost_cap_usd: 10     # the program budget is $10 in total
-run_cost_cap_usd: 5      # one run can use at most half of it
+# Spending landmarks (US dollars), ADVISORY ONLY. The API account enforces its own
+# dollar limit (user decision 2026-11-15), so the code no longer stops calls at these
+# numbers - llm/cost.py logs a warning when spend passes them and keeps accounting.
+weekly_cost_cap_usd: 9.0
+run_cost_cap_usd: 5
 
 # How the wrapper talks to the service.
 llm:
   timeout_seconds: 180           # Gemini can take over a minute when Google is busy
-  max_retries: 5            # extra tries on rate limits (429) and server errors (5xx)
+  max_retries: 0            # money safety: NO automatic retries. Every attempt either returns
+                           # metered usage or is charged at full worst case (llm/client.py
+                           # _log_unknown_usage), so the ledger never under-counts the bill.
   backoff_base_seconds: 2   # wait 2s, 4s, 8s, 16s, 32s
   chars_per_token: 4        # rough estimate used BEFORE a call to check the cost cap
   openai_responses:
@@ -65,7 +73,7 @@ llm:
     default_base_url: https://api.openai.com/v1
   openai_compatible:
     base_url_env: LLM_BASE_URL            # set in .env; default is OpenAI's address below
-    default_base_url: https://api.openai.com/v1
+    default_base_url: https://api.toolkit.umgpt.umich.edu/v1
     max_tokens_field: max_tokens          # some newer services want "max_completion_tokens"
   # Extra settings sent with every request (anthropic / openai_compatible), e.g. {temperature: 0}.
   # Left empty on purpose: some newer models reject a temperature setting.
@@ -103,7 +111,7 @@ reader:
   require_quotes: true          # every filled-in field must come with a supporting quote
   value_in_quote_min_score: 85  # how well a field's value must match its own quote (0-100)
   max_consecutive_llm_errors: 3 # stop the batch if the AI service keeps failing
-  # Which kinds of files the reader processes. sec_edgar, ffiec and cms are already
+  # Which kinds of files the reader processes. sec_edgar, ffiec, cms and trepp are already
   # parsed into tables by Part A, so the reader skips them.
   process_sources: [county_court, recorder, public_notice, permit, state_license,
                     manual_upload, project_site, news, auction, wsj_notice]
@@ -116,4 +124,5 @@ ocr:
   language: eng
 
 # ---- Privacy switches. Bloomfield decides if these ever change. ----
+trepp_ai_allowed: false              # true = Trepp data may be sent to the outside AI service
 bloomfield_material_ai_allowed: false  # true = files marked confidential / from manual_upload/bloomfield/

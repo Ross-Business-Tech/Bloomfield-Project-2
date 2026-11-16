@@ -1,4 +1,4 @@
-"""The project default for every AI step is OpenAI, with the key read from OPENAI_API_KEY."""
+"""The project default for every AI step is U-M Toolkit, with the key read from OPENAI_API_KEY."""
 import re
 from pathlib import Path
 
@@ -15,8 +15,8 @@ def _clean_env(monkeypatch):
         monkeypatch.delenv(n, raising=False)
 
 
-def test_the_default_provider_is_the_codex_api():
-    assert settings.provider_name(settings.load_reader_config()) == "openai_responses"
+def test_the_default_provider_is_umich_compatible():
+    assert settings.provider_name(settings.load_reader_config()) == "openai_compatible"
 
 
 def test_the_key_comes_from_openai_api_key(monkeypatch):
@@ -42,7 +42,7 @@ def test_no_real_key_is_written_anywhere_in_the_project():
                 and "tests" not in path.parts and path.is_file():
             assert not pattern.search(path.read_text(encoding="utf-8", errors="ignore")), path
     example = (ROOT / ".env.example").read_text(encoding="utf-8")
-    assert "OPENAI_API_KEY=your-openai-api-key-here" in example
+    assert "OPENAI_API_KEY=replace-with-your-um-toolkit-key" in example
 
 
 def test_codex_requests_use_the_responses_endpoint_and_parse_the_answer():

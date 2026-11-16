@@ -13,7 +13,10 @@ It prints what worked, what did not, the token counts and the estimated cost. It
 """
 from __future__ import annotations
 
+import argparse
+import os
 import sys
+from urllib.parse import urlsplit
 import time
 
 from llm import client
@@ -33,10 +36,39 @@ def _step(title: str) -> None:
     print(f"\n{title}")
 
 
-def main() -> int:
+def setup_problem(provider: str, base_url: str) -> str | None:
+    """Catch a U-M endpoint/protocol mismatch before any paid request."""
+    url = urlsplit(base_url)
+    if url.hostname == "api.toolkit.umgpt.umich.edu":
+        if provider != "openai_compatible":
+            return ("U-M Toolkit needs LLM_PROVIDER=openai_compatible, not OpenAI Codex/Responses. "
+                    "Use the settings in UMICH-WORKFLOW.md.")
+        if url.path.rstrip("/") != "/v1":
+            return "Set LLM_BASE_URL=https://api.toolkit.umgpt.umich.edu/v1 (do not append /chat/completions)."
+    return None
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description="Test the AI key with two small FAKE-data calls; never show the key.")
+    parser.add_argument("--umich", action="store_true", help="Use the tested U-M Toolkit endpoint and models for this check only")
+    args = parser.parse_args([] if argv is None else argv)
     cfg = load_reader_config()
+    if args.umich:
+        os.environ.update(LLM_PROVIDER="openai_compatible",
+                          LLM_BASE_URL="https://api.toolkit.umgpt.umich.edu/v1",
+                          LLM_MODEL_CHEAP="gpt-4o-mini", LLM_MODEL_STRONG="gpt-4o")
     provider = provider_name(cfg)
     print(f"Provider: {provider}")
+    base = os.environ.get("LLM_BASE_URL", "").strip()
+    problem = setup_problem(provider, base)
+    if problem:
+        print(f"PROBLEM: {problem}")
+        return 1
+    if base:
+        endpoint = urlsplit(base)
+        # Never echo credentials, URL query parameters, or fragments.
+        print(f"API host:     {endpoint.hostname}")
+    print("Settings: process environment overrides pipeline/.env; Railway settings do not sync to laptops.")
     try:
         cheap, strong = model_for_task("relevance", cfg), model_for_task("extract", cfg)
     except ValueError as e:
@@ -97,4 +129,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))

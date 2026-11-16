@@ -33,6 +33,8 @@ KIND_BY_CATEGORY = {
     # added by Part B (the scout):
     "project_website": "projectsite", "news_article": "news",
     "auction_listing": "auction", "ucc_sale_notice": "uccsale",
+    # added by the AI agent (agent/): a public page fetched while compiling evidence
+    "web_page": "webpage",
 }
 
 EXT_TO_TYPE = {

@@ -350,6 +350,15 @@ def collect_source(con, run, cfg: dict, section: str, src: dict, since: date, un
     mode = src.get("access", "manual_inbox")
     if mode not in ACCESS_MODES:
         raise ValueError(f"unknown access mode '{mode}' (use one of {', '.join(sorted(ACCESS_MODES))})")
+    # Terms-of-use gate: the project's own rules say a person must check each site's terms before
+    # automation. verified_terms: true in the YAML records that check. Until then the source stays on
+    # the manual inbox, even when an access mode is configured.
+    if mode in ("scrape", "open_data_api") and not src.get("verified_terms"):
+        mode = "manual_inbox"
+        terms_note = ("automated access is configured, but the site's terms of use have not been confirmed by a "
+                      "person yet (set verified_terms: true in the county YAML after checking them)")
+    else:
+        terms_note = None
 
     def use_inbox(reason: str | None = None) -> None:
         if reason:
@@ -359,7 +368,7 @@ def collect_source(con, run, cfg: dict, section: str, src: dict, since: date, un
                          collector_name=COLLECTOR)
 
     if mode == "manual_inbox":
-        use_inbox()
+        use_inbox(terms_note)
         return
 
     problems: list[str] = []

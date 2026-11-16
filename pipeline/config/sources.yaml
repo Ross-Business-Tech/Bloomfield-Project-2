@@ -24,6 +24,8 @@ domains:
   www.sec.gov:  { seconds_between_requests: 0.25 }   # SEC allows 10/sec; we use ~4/sec
   data.sec.gov: { seconds_between_requests: 0.25 }
   data.cms.gov: { seconds_between_requests: 1, timeout_seconds: 300 }   # some CMS files are large
+  # NETR Online's robots.txt sets Crawl-delay: 10 for the directory pages discover.py reads.
+  publicrecords.netronline.com: { seconds_between_requests: 10 }
 
 # How far back to look when collecting county/court/recorder records.
 lookback_days:
@@ -40,6 +42,22 @@ enabled_collectors:
   - liens
   - permits
   - state
+  - market_rents
+  - cms_ops
+
+# market_rents: the city rent index the rent-decline signal (R) compares each property's asking rents
+# against. A MARKET benchmark only - never property-specific data.
+market_rents:
+  months: 30            # keep this many recent months per city
+  sources:
+    # ZORI covers the whole rental stock (SFR + condo + apartments), smoothed. R compares percent
+    # changes only, never levels; new multifamily asking rents can move differently. See market_rents.py.
+    - name: "Zillow ZORI (all rentals, city, smoothed, seasonally adjusted)"
+      url: "https://files.zillowstatic.com/research/public_csvs/zori/City_zori_uc_sfrcondomfr_sm_month.csv"
+      terms_url: "https://www.zillow.com/research/data/"
+      verified_terms: false   # a person must confirm terms at the URL above before this runs. Observed
+                              # 2026-11-15: the CSV downloads publicly (HTTP 200); Zillow's research page
+                              # says the data is free to download and use with attribution.
 
 # Manual inbox: if a dropped file has no sidecar .json and no category folder,
 # this is the doc_category it gets, by source. Anything not listed becomes "other".
