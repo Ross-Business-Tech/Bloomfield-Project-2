@@ -102,6 +102,38 @@ TOOL_SCHEMAS = [
                                                                          "from."},
                            "notes": {"type": "string", "description": "Anything a reviewer should know (optional)."}},
                        "required": ["subject", "claim"]}}},
+    {"type": "function", "function": {
+        "name": "record_research_check",
+        "description": "Record a QUALIFIED counter-evidence check on your goal property after you "
+                       "have actually fetched and read the source page. Use this - not "
+                       "record_evidence - for the county tax check and the lien search, so the "
+                       "research layer can count them as completed checks with their jurisdiction, "
+                       "period and identity bound. Same proof as record_evidence: file_id + "
+                       "source_url + a verbatim quote from the saved page. The saved page must "
+                       "itself mention the property (its name or street) - a page about a "
+                       "different property is refused. A web search alone is only an attempt and "
+                       "never counts as a check. Nothing here scores.",
+        "parameters": {"type": "object",
+                       "properties": {
+                           "property_id": {"type": "string", "description": "The [property_id=...] "
+                                                                               "marker from your goal."},
+                           "check": {"type": "string", "enum": ["county_tax", "liens"]},
+                           "state": {"type": "string"}, "county": {"type": "string"},
+                           "tax_year": {"type": "integer", "description": "county_tax: the tax year "
+                                                                             "the page shows."},
+                           "parcel": {"type": "string"}, "address": {"type": "string"},
+                           "billed": {"type": "number"}, "paid": {"type": "number"},
+                           "status": {"type": "string", "description": "county_tax: e.g. paid / "
+                                                                         "delinquent, as stated."},
+                           "query": {"type": "string", "description": "liens: the exact search "
+                                                                        "string you ran."},
+                           "result_count": {"type": "integer", "description": "liens: results found "
+                                                                                 "(0 is fine - a "
+                                                                                 "find-nothing counts)."},
+                           "file_id": {"type": "string"}, "source_url": {"type": "string"},
+                           "quote": {"type": "string"},
+                           "notes": {"type": "string"}},
+                       "required": ["property_id", "check", "file_id", "source_url", "quote"]}}},
 ]
 
 TOOL_NAMES = [t["function"]["name"] for t in TOOL_SCHEMAS]
@@ -168,6 +200,52 @@ _BAD_SQL = re.compile(
 MAX_ROWS = 200
 MIN_QUOTE = 12                              # characters; a quote shorter than this proves nothing
 MAX_QUOTE = 2000
+
+# A find-nothing lien check needs the index page's own no-results statement (one of these)
+# IN THE QUOTED result region - an incidental phrase elsewhere on the page is not proof.
+_NO_RESULTS_PHRASES = ("no records", "no results", "no liens", "0 results", "nothing found",
+                       "no matches", "no filings", "no entries")
+# A positive lien result count needs the index's own results statement: the count itself
+# plus result vocabulary in the quoted region.
+_RESULT_WORDS = ("result", "record", "lien", "filing", "ucc", "judgment")
+
+
+def _number_tokens(text: str) -> set:
+    """Every standalone number token, comma-grouped or plain, as ints. '10,000' yields
+    {10000}; '1000' is NOT found inside it - no digit-soup substring misbinds."""
+    out = set()
+    for m in re.finditer(r"\d{1,3}(?:,\d{3})+|\d+", text or ""):
+        try:
+            out.add(int(m.group(0).replace(",", "")))
+        except ValueError:
+            pass
+    return out
+
+
+_BILLED_LABELS = r"(?:billed|levied|charged|assessed)"
+_PAID_LABELS = r"(?:paid|received|collected)"
+
+
+def _amount_pattern(amount: float) -> str:
+    """The amount as written: plain or comma-grouped, boundary-guarded."""
+    n = int(round(amount))
+    return r"(?<![\d,])(?:" + re.escape(f"{n:,}") + "|" + re.escape(str(n)) + r")(?![\d,])"
+
+
+def _label_bound(quote: str, labels: str, amount: float) -> bool:
+    """True when the amount appears in the quote right after its own label ('billed
+    12,000'), so a figure can never be satisfied by the OTHER column's number."""
+    return re.search(labels + r"[^0-9]{0,24}" + _amount_pattern(amount), quote or "", re.I) is not None
+
+
+def _token_on_page(page: str, value: str) -> bool:
+    """True when `value` appears on the page as a whole token (separators flexible):
+    'FAKE-12' matches 'parcel: FAKE 12' but never 'FAKE-123' or 'OTHER-99'."""
+    parts = [p for p in re.split(r"[^A-Za-z0-9]+", (value or "").strip()) if p]
+    if not parts:
+        return False
+    pat = r"(?<![A-Za-z0-9])" + r"[^A-Za-z0-9]+".join(map(re.escape, parts)) + r"(?![A-Za-z0-9])"
+    return re.search(pat, page or "", re.I) is not None
 
 
 def _err(message: str) -> dict:
@@ -412,6 +490,162 @@ def record_evidence(con, run_id: str, *, subject: str, claim: str,
             "note": "Saved as verified evidence" + (" and filed for human review." if source_kind == "web_page" else ".")}
 
 
+def record_research_check(con, run_id: str, *, property_id: str, check: str,
+                          file_id: str | None = None, source_url: str | None = None,
+                          quote: str | None = None, state: str | None = None,
+                          county: str | None = None, tax_year=None, parcel: str | None = None,
+                          address: str | None = None, billed=None, paid=None,
+                          status: str | None = None, query: str | None = None,
+                          result_count=None, notes: str | None = None) -> dict:
+    """Record a QUALIFIED counter-evidence check (county tax year / lien search) with proof.
+
+    Same proof bar as record_evidence's web path, PLUS an independent identity binding: the
+    saved page must mention the property's own name or street, so a fetched page about a
+    different property can never become this property's completed check. Records through
+    research.county_tax's recorders, which write the qualified search rows the
+    counter-evidence gates count (a bare web_search remains only an attempt)."""
+    pid = (property_id or "").strip()
+    if not pid:
+        return _err("record_research_check needs the goal's property_id marker.")
+    row = con.execute("SELECT property_name, street_address, city, state, county, zip, "
+                      "parcel_number FROM properties WHERE property_id = ? LIMIT 1",
+                      [pid]).fetchone()
+    if row is None:
+        return _err(f"Unknown property_id {pid!r}; use the [property_id=...] marker from your goal.")
+    if not (file_id and source_url and quote):
+        return _err("Proof needs all three: file_id (from fetch_page), source_url, and a verbatim quote.")
+    text, row_or_err = _stored_page_text(con, file_id)
+    if text is None:
+        return row_or_err
+    if row_or_err["url"] and source_url != row_or_err["url"]:
+        return _err(f"source_url {source_url!r} does not match the saved page's address "
+                    f"{row_or_err['url']!r}. Cite the page that was actually fetched.")
+    if not (MIN_QUOTE <= len(quote.strip()) <= MAX_QUOTE):
+        return _err(f"The quote must be {MIN_QUOTE}-{MAX_QUOTE} characters of words copied from the page.")
+    if _norm(quote) not in _norm(text):
+        return _err("That quote does not appear on the saved page. Copy the exact words, or do not "
+                    "record the check.")
+    from research import binding, county_tax
+    from research.schema import create_research_tables
+    if not binding.corroborated_bind(binding.elements_from_row(row), text):
+        return _err("The saved page does not corroborate this property (it needs a strong "
+                    "element - the property's name, street or parcel - plus a second detail "
+                    "like the city, county or ZIP; one bare mention is not identity), so it "
+                    "cannot stand as THIS property's check. Fetch the page that is actually "
+                    "about the property, or leave the check unrecorded.")
+    create_research_tables(con)
+
+    def _unsupported(reason: str) -> dict:
+        """A verified page whose STRUCTURED claims don't check out is still recorded -
+        as an unqualified ATTEMPT, never as a verified fact or a cleared lane."""
+        from research import evidence as _ev
+        _ev.record_search(con, property_key=pid, identity_key=None, lane=f"attempt:{check}",
+                          query=str(query or f"{check} {state} {county} {tax_year or ''} "
+                                    f"{parcel or address or ''}").strip(),
+                          result_count=None,
+                          coverage_limit="unqualified attempt: " + reason,
+                          notes=f"[proof {file_id}]")
+        return _err(reason)
+
+    if check == "county_tax":
+        if not (state and county and tax_year and (parcel or address)):
+            return _err("county_tax needs state, county, tax_year, and a parcel or address - the "
+                        "jurisdiction, period and identity the check is bound to.")
+        try:
+            year = int(tax_year)
+            billed_f = float(billed) if billed is not None else None
+            paid_f = float(paid) if paid is not None else None
+        except (TypeError, ValueError):
+            return _err("tax_year, billed and paid must be numbers (as stated on the page).")
+        # Jurisdiction is verified, not asserted: it must agree with the property's own
+        # universe record (a TX 'check' on an MI property is refused, not recorded).
+        uni_state, uni_county, uni_parcel = (row[3] or "").strip(), (row[4] or "").strip(), (row[6] or "").strip()
+        if uni_state and state.strip().lower() != uni_state.lower():
+            return _unsupported(f"This property's record is in {uni_state}, not {state}. A check "
+                                "against another jurisdiction is not this property's coverage.")
+        if uni_county and county.strip().lower() != uni_county.lower():
+            return _unsupported(f"This property's record is in {uni_county} county, not {county}.")
+        if uni_parcel and parcel and binding.squash(uni_parcel) != binding.squash(parcel):
+            return _unsupported(f"This property's parcel on record is {uni_parcel}, not {parcel}.")
+        # The structured claims bind to the QUOTED record region (verified verbatim on the
+        # page): the claimed year must stand there as a whole token, and each figure must
+        # appear next to its OWN label ('billed 12,000' proves billed=12000, never
+        # paid=12000) - so swapped columns are refused, and a figure is never satisfied by
+        # a digit-soup substring. The status must appear in the quote too.
+        if not re.search(rf"(?<![0-9]){year}(?![0-9])", quote):
+            return _unsupported(f"The quoted record does not show the tax year {year}: a check "
+                                "for a year the page never shows is invented coverage.")
+        for label, labels, amount in (("billed", _BILLED_LABELS, billed_f),
+                                      ("paid", _PAID_LABELS, paid_f)):
+            if amount is not None and not _label_bound(quote, labels, amount):
+                return _unsupported(f"The quoted record does not show {label} "
+                                    f"{amount:,.0f} next to its own label: record only "
+                                    "figures the record states, in the record's own columns.")
+        if status and status.strip().lower() not in quote.lower():
+            return _unsupported(f"The quoted record does not show the status {status!r}.")
+        # The claimed parcel must be visible on the page itself, as a whole token: a page
+        # showing a different parcel cannot anchor this parcel's check.
+        if parcel and not _token_on_page(text, parcel):
+            return _unsupported(f"The saved page does not show parcel {parcel} as a whole "
+                                "token; a page showing a different parcel (or none) cannot "
+                                "anchor this parcel's check.")
+        ev_id = county_tax.record_tax_year(
+            con, state=state, county=county, tax_year=year, parcel=parcel, address=address,
+            property_key=pid, billed=billed_f, paid=paid_f, status=status,
+            source_url=source_url, file_id=file_id)
+        return {"ok": True, "evidence_id": ev_id,
+                "note": "Qualified county tax check recorded (jurisdiction verified against the "
+                        "property's record; figures and status verified on the saved page)."}
+    if check == "liens":
+        if not query or result_count is None:
+            return _err("liens needs query (the exact search string you ran) and result_count "
+                        "(0 is fine - a find-nothing counts, bounded to that exact query).")
+        # Jurisdiction must be EXPLICIT: the property's universe state is routing context,
+        # not proof that the searched index covers it.
+        if not (state or "").strip():
+            return _unsupported("liens needs an explicit state - the jurisdiction the lien "
+                                "index you searched actually covers. Do not assume it from "
+                                "the property.")
+        try:
+            rc = int(result_count)
+        except (TypeError, ValueError):
+            return _err("result_count must be a number.")
+        # Result proof lives in the QUOTED result region: a find-nothing check needs the
+        # index's own no-results statement THERE (an incidental phrase elsewhere on the
+        # page is not proof), and a positive count needs the count itself plus result
+        # vocabulary in the quote (a say-so number on a non-index page proves nothing).
+        elements = binding.elements_from_row(row)
+        subject_in_quote = bool(binding.present_elements(elements, quote) & set(binding.STRONG))
+        if rc == 0 and not (any(p in quote.lower() for p in _NO_RESULTS_PHRASES)
+                            and subject_in_quote):
+            return _unsupported("A find-nothing lien check needs the index's own no-results "
+                                "statement in the quoted result region (e.g. 'no records "
+                                "found') and the property named there. This quote shows no "
+                                "search result, so the check is at most an attempt, which "
+                                "never clears the lane.")
+        if rc > 0:
+            count_stmt = re.search(
+                rf"(?<![\d,]){rc}(?![\d,])\s+(?:results?|records?|liens?|judgments?|matches|filings)\b"
+                rf"|\b(?:results?|records?|liens?|judgments?|matches|filings)\s*"
+                rf"(?:found|returned)?\s*:?\s*(?<![\d,]){rc}(?![\d,])", quote or "", re.I)
+            if not (count_stmt and subject_in_quote):
+                return _unsupported("A positive result count needs the index's own results "
+                                    "statement in the quote - the count adjacent to a result "
+                                    "noun ('5 results') and the property named there - not a "
+                                    "say-so number or an incidental count on a non-index page.")
+        search_id = county_tax.record_lien_search(
+            con, query=query, result_count=rc, property_key=pid,
+            coverage_limit=(f"bounded to the exact query string; jurisdiction {state.strip()} "
+                            f"(stated by the researcher against the verified index page); "
+                            f"searched {datetime.date.today()}; identity bound to {pid} by "
+                            "page corroboration"),
+            notes=(notes or "") + f" [proof {file_id}]")
+        return {"ok": True, "search_id": search_id,
+                "note": "Qualified lien search recorded: jurisdiction, search date, identity, "
+                        "the exact-query bound and the page's own result statement are stored."}
+    return _err("check must be county_tax or liens.")
+
+
 # ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
@@ -434,6 +668,16 @@ def run_tool(con, run_id: str, name: str, args: dict, *, bot_cfg: dict, budget,
                                   file_id=args.get("file_id"), source_url=args.get("source_url"),
                                   quote=args.get("quote"), db_query=args.get("db_query"),
                                   notes=args.get("notes"), model_name=model_name)
+        elif name == "record_research_check":
+            out = record_research_check(
+                con, run_id, property_id=str(args.get("property_id", "")),
+                check=str(args.get("check", "")), file_id=args.get("file_id"),
+                source_url=args.get("source_url"), quote=args.get("quote"),
+                state=args.get("state"), county=args.get("county"),
+                tax_year=args.get("tax_year"), parcel=args.get("parcel"),
+                address=args.get("address"), billed=args.get("billed"), paid=args.get("paid"),
+                status=args.get("status"), query=args.get("query"),
+                result_count=args.get("result_count"), notes=args.get("notes"))
         else:
             out = _err(f"Unknown tool {name!r}. You may only use: {', '.join(TOOL_NAMES)}.")
     except Exception as e:                                   # a broken tool must never crash the run

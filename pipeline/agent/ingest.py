@@ -62,32 +62,48 @@ def create_tables(con) -> None:
         pass   # column already there
 
 
+def validate_assessment_row(con, row: dict) -> list[str]:
+    """The research_assessments contract, checked and returned as problems (empty = valid).
+    Shared by the artifact lane (_save_assessment) and the research layer's ISOLATED draft
+    store, so a draft is held to exactly the standard a person's assessment is."""
+    problems = []
+    pid = str(row.get("property_id") or "").strip()
+    if not pid or not _property(con, pid):
+        problems.append(f"unknown property_id {pid!r}; assessment must name an existing project")
+        return problems
+    tier = str(row.get("research_tier") or "").strip()
+    if tier.split(" ")[0] not in ("Hot", "Watch", "Low", "Unscored"):
+        problems.append("research_tier must start with Hot, Watch, Low or Unscored (research-lane "
+                        "label; a flag suffix like 'Low (pre-default ...)' is fine)")
+        return problems
+    if tier.split(" ")[0] != "Unscored":
+        try:
+            score = float(row.get("research_score"))
+            if not (0.0 <= score <= 100.0):
+                raise ValueError
+        except (TypeError, ValueError):
+            problems.append("research_score must be a number 0-100")
+    return problems
+
+
 def _save_assessment(con, row: dict, rid: str, ledger) -> bool:
     """Store a research-lane provisional assessment (rubric v2). NOT evidence and NOT a
     formula input: a structured judgment row displayed separately from the deterministic
     score. Needs property_id, research_score (0-100) and research_tier (Hot|Watch|Low)."""
+    problems = validate_assessment_row(con, row)
+    if problems:
+        for p in problems:
+            ledger("invalid", p)
+        return False
     pid = str(row.get("property_id") or "").strip()
-    if not pid or not _property(con, pid):
-        ledger("invalid", f"unknown property_id {pid!r}; assessment must name an existing project")
-        return False
     tier = str(row.get("research_tier") or "").strip()
-    if tier.split(" ")[0] not in ("Hot", "Watch", "Low", "Unscored"):
-        ledger("invalid", "research_tier must start with Hot, Watch, Low or Unscored (research-lane "
-                          "label; a flag suffix like 'Low (pre-default ...)' is fine)")
-        return False
     if tier.split(" ")[0] == "Unscored":
         # explicit unscored/conflict marker: a researched property whose filings cannot yet be
         # reconciled into one honest number (e.g. an unresolved debt-scope conflict). Stored for
         # the audit trail and the property page; never counted or displayed as a score.
         score = None
     else:
-        try:
-            score = float(row.get("research_score"))
-            if not (0.0 <= score <= 100.0):
-                raise ValueError
-        except (TypeError, ValueError):
-            ledger("invalid", "research_score must be a number 0-100")
-            return False
+        score = float(row.get("research_score"))
     bd, reasons = row.get("score_breakdown"), row.get("score_reasons")
     con.execute(
         "INSERT INTO research_assessments (id, property_id, research_score, research_tier, "
@@ -102,6 +118,19 @@ def _save_assessment(con, row: dict, rid: str, ledger) -> bool:
     ledger("saved", f"research assessment stored: {tier} "
                     f"{f'{score:.0f}' if score is not None else 'unscored'} (research lane, not the formula)")
     return True
+
+
+def save_research_assessment(con, row: dict, ledger=None) -> bool:
+    """The one public writer for the LIVE research_assessments store: the same verified
+    lane artifact ingest uses (_save_assessment). Callers pass a ledger(kind, message) to
+    collect outcomes; the default just logs. NOTE: the research layer's auto-drafts do
+    NOT use this - they go to the isolated research_drafts store (research/drafts.py)."""
+    import uuid
+    from collectors.common.log import get_logger
+    log = get_logger("agent.ingest")
+    if ledger is None:
+        ledger = lambda kind, msg: log.info("assessment %s: %s", kind, msg)  # noqa: E731
+    return _save_assessment(con, row, f"assess-{uuid.uuid4().hex[:12]}", ledger)
 
 
 def _utcnow() -> datetime:

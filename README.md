@@ -20,6 +20,7 @@ Every week the tool runs the same chain, and a person checks the output at each 
 | **Bot** | Searchers for each signal: project websites ("coming soon" past the date), news and notices, plus the county, bank and SEC collectors. | `pipeline/bot/` |
 | **C. Link** | Joins records about the same property, loan, lender and company (parcel, then address, then fuzzy names). Unsure matches go to a person. | `pipeline/matcher/` |
 | **D. Score** | Ranks properties with the Bloomfield Opportunity Score and shows them, with evidence and an executive summary, in a researcher dashboard. | `pipeline/scorer/`, `pipeline/dashboard/` |
+| **Research layer** | The careful-analyst method: provenance-rich evidence, graded identity matching, primary financial records, counter-evidence, source reconciliation, and holds when sources conflict. Keeps partial research honest; never changes the score. | `pipeline/research/` |
 
 ## How we weight the signals
 
@@ -119,6 +120,7 @@ Final scope (every signal, or one done exceptionally well) is decided before the
 ## Where things are
 
 - `pipeline/README.md`: detailed setup and per-part documentation.
+- `pipeline/research/README.md`: the deep research method, gate by gate.
 - `pipeline/scorer/EQUATION.md`: the Opportunity Score, term by term.
 - `pipeline/config/`: every number and switch (`scoring.yaml`, `equation.yaml`, `reader.yaml`, `bot.yaml`, `discovery.yaml`, `counties/`).
 - `pipeline/demo/`: the demo page, the mid-point slide deck, the call plan and the content they share (`content.json`).

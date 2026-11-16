@@ -45,6 +45,13 @@ weekly_loop:
   max_lifetime_est_usd: 8.50   # HARD backstop: stop before the next goal once lifetime est.
                          # spend across ALL chargeable tasks plus the next goal's worst-case
                          # reserve reaches this.
+  research_gates: false  # wire the research layer (pipeline/research/) into each pass:
+                         # (1) every goal carries that property's current research depth and unmet
+                         # lanes, so the agent spends its bounded steps on the checks the method
+                         # says are missing; (2) after the pass, evidence is rebuilt from the stored
+                         # CMS files and each property's depth (lead/partial/held/ready_for_review)
+                         # is re-derived into the summary. Database and stored files only - no
+                         # network, no model calls, no scoring changes. Off unless turned on here.
   max_additional_est_usd: 4.51 # HARD stop, the binding one (2026-11-15 user decisions): the
                          # account has 5.51 remaining (user-reported), 1.00 stays untouched,
                          # so at most 4.51 NEW est. spend on top of the frozen pass-start
