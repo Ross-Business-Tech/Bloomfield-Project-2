@@ -152,6 +152,7 @@ class Result:
     late: float = 0.0
     late_why: list = field(default_factory=list)
     standouts: list = field(default_factory=list)
+    boosts: dict = field(default_factory=dict)
     applicable: dict = field(default_factory=dict)
     rescale: float = 1.0
     counters: list = field(default_factory=list)
@@ -428,6 +429,14 @@ def applicable_terms(p: Property, cfg: dict, as_of: date) -> dict:
     }
 
 
+def strength_boost(s: float, so: dict) -> float:
+    """x1.0 below boost_starts_at, rising in a straight line to max_boost at boost_full_at."""
+    start, full, top = so.get("boost_starts_at", 0.6), so.get("boost_full_at", 1.0), so.get("max_boost", 1.5)
+    if s <= start:
+        return 1.0
+    return 1.0 + (top - 1.0) * min(1.0, (s - start) / (full - start))
+
+
 def score_property(p: Property, cfg: dict, as_of: date, rents: dict, market: dict, inspections: dict,
                    extra: dict | None = None) -> Result:
     facts = property_facts(p)
@@ -453,14 +462,21 @@ def score_property(p: Property, cfg: dict, as_of: date, rents: dict, market: dic
     w_all = sum(w[k] for k in parts)
     w_app = sum(w[k] for k in parts if r.applicable[k])
     r.rescale = min(cfg["applicability"]["max_rescale"], w_all / w_app) if w_app else 1.0
+    strongest_creative = max([s.value for s in r.creative if s.known] or [0.0])
+    r.boosts = {}
     for name, part in parts.items():
-        if part.value >= so["at_strength"]:
-            # Upside extreme: counts in full and skips the anti-fluke discount. Its boost and the rescale
-            # do NOT stack: it gets whichever is larger.
-            early += w[name] * part.value * max(so["boost"], r.rescale)
-            r.standouts.append(f"{STANDOUT_LABEL[name]}: {part.why}")
+        # Strength boost: a strong signal counts MORE, even on its own. For C the strongest single creative
+        # signal decides (C's value itself already includes each source's reliability).
+        s_for_boost = strongest_creative if name == "creative" else part.value
+        boost = strength_boost(s_for_boost, so)
+        r.boosts[name] = boost
+        if boost > 1.0:
+            # The boost and the applicability rescale do NOT stack: the larger one is used.
+            early += w[name] * part.value * max(boost, r.rescale)
         else:
             early += w[name] * part.value * r.corroboration * r.rescale
+        if s_for_boost >= so["at_strength"] and part.value > 0:
+            r.standouts.append(f"{STANDOUT_LABEL[name]}: {part.why}")
         if part.counter:
             r.counters.append(part.counter)
     r.counters += counters
@@ -539,6 +555,7 @@ def explain(r: Result, cfg: dict) -> dict:
                               "reliability": s.q, "effective": round(s.effective, 3), "known": s.known, "why": s.why}
                              for s in r.creative],
         "anti_fluke": f"{r.showing} early signal(s) showing -> keeps {r.corroboration:.0%} of early points",
+        "strength_boosts": {k: round(v, 2) for k, v in r.boosts.items()},
         "standouts": r.standouts,
         "counter_signals": r.counters,
         "not_applicable": [k for k, ok in r.applicable.items() if not ok],
