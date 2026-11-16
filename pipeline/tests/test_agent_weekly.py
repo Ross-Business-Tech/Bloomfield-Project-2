@@ -184,3 +184,89 @@ def test_unscored_grouped_properties_are_queued(con):
     assert s["candidates"] == 2               # the ranked one + the unscored grouped one
     assert s["goals_run"] == 2
     assert any("Tail Property" in g or "x9" in g for g in seen)
+
+
+def test_research_gates_hook_failure_does_not_kill_the_pass(con, monkeypatch):
+    """The opt-in research-layer hook is isolated: a broken ingest is logged into the
+    summary, never thrown through run_pass."""
+    _add_week(con, ["p1"])
+
+    def fake_agent(c, goal):
+        return {"status": "done", "evidence_rows": 0}
+
+    import research.ingest as research_ingest
+    monkeypatch.setattr(research_ingest, "ingest", _boom)
+    cfg = {"weekly_loop": {"research_gates": True}}
+    s = aw.run_pass(con, cfg=cfg, limits=_limits(max_goals=1), agent_run=fake_agent)
+    assert s["goals_run"] == 1 and "research_depth_error" in s
+    assert "boom" in s["research_depth_error"]
+
+
+def _boom(con):
+    raise RuntimeError("boom")
+
+
+def test_research_gates_hook_runs_when_enabled(con):
+    _add_week(con, ["p1"])
+
+    def fake_agent(c, goal):
+        return {"status": "done", "evidence_rows": 0}
+
+    cfg = {"weekly_loop": {"research_gates": True}}
+    s = aw.run_pass(con, cfg=cfg, limits=_limits(max_goals=1), agent_run=fake_agent)
+    assert "research_depth_error" not in s
+    assert "research_depth" in s                       # empty dict falsy keys filtered -> may be {}
+
+
+def test_research_gates_enriches_goals_with_unmet_lanes(con, monkeypatch):
+    """With the flag on AND the paid-execution opt-in (the steering initiates paid searches),
+    a property's tracked unmet lanes are handed to the agent in the goal."""
+    monkeypatch.setenv("BLOOMFIELD_RESEARCH_PAID", "1")
+    from research import county_tax, gates
+    from research.schema import create_research_tables
+    create_research_tables(con)
+    # one lane recorded, liens missing -> the goal should name the lien gap
+    county_tax.record_tax_year(con, state="TX", county="FAKE", tax_year=2025,
+                               parcel="F-1", property_key="p1", billed=10.0, paid=10.0,
+                               source_url="https://county.example/fake")
+    gates.evaluate_all(con)
+    _add_week(con, ["p1"])
+    seen = []
+
+    def fake_agent(c, goal):
+        seen.append(goal)
+        return {"status": "done", "evidence_rows": 0}
+
+    cfg = {"weekly_loop": {"research_gates": True}}
+    aw.run_pass(con, cfg=cfg, limits=_limits(max_goals=1), agent_run=fake_agent)
+    assert any("liens" in g and "unmet lanes" in g for g in seen)
+
+
+def test_research_gates_off_leaves_goals_untouched(con):
+    _add_week(con, ["p1"])
+    seen = []
+
+    def fake_agent(c, goal):
+        seen.append(goal)
+        return {"status": "done", "evidence_rows": 0}
+
+    aw.run_pass(con, limits=_limits(max_goals=1), agent_run=fake_agent)
+    assert all("unmet lanes" not in g for g in seen)
+
+
+def test_research_gates_result_is_persisted_in_the_pass_row(con, monkeypatch):
+    """research_depth (or its error) must land in weekly_research_passes.summary, not only
+    in the returned dict."""
+    import json as _json
+    _add_week(con, ["p1"])
+
+    def fake_agent(c, goal):
+        return {"status": "done", "evidence_rows": 0}
+
+    import research.ingest as research_ingest
+    monkeypatch.setattr(research_ingest, "ingest", _boom)
+    cfg = {"weekly_loop": {"research_gates": True}}
+    s = aw.run_pass(con, cfg=cfg, limits=_limits(max_goals=1), agent_run=fake_agent)
+    stored = _json.loads(con.execute("SELECT summary FROM weekly_research_passes "
+                                     "WHERE pass_id = ?", [s["pass_id"]]).fetchone()[0])
+    assert stored.get("research_depth_error") == s["research_depth_error"]
