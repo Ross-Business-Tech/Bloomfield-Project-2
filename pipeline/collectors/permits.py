@@ -149,9 +149,11 @@ def load_file(con, f: dict) -> dict:
             counts["inspections"] += 1
         issued = _date(_get(row, cols, "issued_date")) or _date(_get(row, cols, "applied_date"))
         if num and issued and category != "certificate_of_occupancy":
+            kind = " · ".join(str(x) for x in (_get(row, cols, "permit_class"), _get(row, cols, "permit_type")) if x)
+            status = " · ".join(str(x) for x in (_get(row, cols, "status"), kind) if x)   # keeps "New Building" etc.
             upsert(con, "filing_fields", {**base, "file_id": f"{f['file_id']}:permit:{num}",
                                           "filing_type": "building_permit", "filing_date": issued,
-                                          "permit_status": _get(row, cols, "status")})
+                                          "permit_status": status})
             counts["permits"] += 1
         done = _date(_get(row, cols, "completed_date"))
         if category == "certificate_of_occupancy":

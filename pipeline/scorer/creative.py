@@ -28,7 +28,7 @@ from .signals import as_date
 
 CREATIVE_LABELS = {
     "R": "Rent vs. city", "I": "Site inactivity", "Q": "Occupancy slide", "V": "Income erosion",
-    "X": "Cost squeeze", "K": "Concession creep", "Lq": "Licensing / care quality",
+    "X": "Cost squeeze", "K": "Concession creep", "Lq": "Licensing / care quality", "W": "Value cut",
 }
 
 INPUT_SCHEMA = """
@@ -311,6 +311,27 @@ def _license_keys(p) -> set[str]:
 def license_key(address, state) -> str | None:
     num = re.match(r"\s*(\d+)\s+(\w+)", (address or "").lower())
     return f"{num.group(1)} {num.group(2)}|{(state or '').upper()}" if num else None
+
+
+# ---------------------------------------------------------------------------
+# W: value cut (public: the property value a CMBS loan reports at securitization vs. its most recent value)
+# ---------------------------------------------------------------------------
+def value_cut(p, c, as_of) -> Sig:
+    """W = (value at securitization - most recent value) / value at securitization / full_drop.
+    Both values are public in every CMBS loan's SEC Schedule AL filing (an appraisal reduction shows up here)."""
+    best = Sig("W")
+    for ln in p.cmbs_loans:
+        v0, v1 = ln.get("value_securitization"), ln.get("value_recent")
+        d1 = as_date(ln.get("value_recent_date")) or as_date(ln.get("report_period"))
+        if not v0 or v0 <= 0 or v1 is None or (d1 and d1 > as_of):
+            continue
+        drop = (v0 - v1) / v0
+        s = Sig("W", clamp(drop / c["full_drop"]), True,
+                f"value ${v0 / 1e6:.1f}M at securitization -> ${v1 / 1e6:.1f}M most recent ({-drop:+.0%})",
+                c["reliability"])
+        if s.value >= best.value:
+            best = s
+    return best
 
 
 # ---------------------------------------------------------------------------

@@ -866,7 +866,7 @@ def page_how(con, run_id):
 - Auctions and CMBS are shown as context only, never scored.
 - County records are found through **NETR Online** (`python -m collectors.discover`), recorders first because they feed the loan clock.
 """)
-    st.latex(r"C = 1-\prod_{j\in\{R,I,Q,V,X,K,L_q\}}\left(1-q_j\,s_j\right)")
+    st.latex(r"C = 1-\prod_{j\in\{R,I,Q,V,X,K,L_q,W\}}\left(1-q_j\,s_j\right)")
     st.latex(r"\text{Early}=\sum_{L,O,C} w_i\, s_i \times \begin{cases}\max(\text{boost}(s_i),\ \text{rescale}) & s_i\ge %s\\ \text{rescale} & \text{otherwise}\end{cases}"
              % so.get("boost_starts_at", 0.6))
     st.latex(r"\text{boost}(s)=1+%s\times\frac{s-%s}{%s-%s}" % (so.get("max_boost", 1.5) - 1, so.get("boost_starts_at", 0.6),
@@ -878,8 +878,8 @@ def page_how(con, run_id):
     qo, iv, xs, kc, lq = (c["occupancy_slide"], c["income_erosion"], c["cost_squeeze"], c["concession_creep"],
                           c["licensing_quality"])
     st.dataframe(pd.DataFrame([
-        {"Term": "L · Loan clock (construction, or any short-term loan that needed an extension)", "Weight": w["loan_clock"], "0 → 1": f"{lc['start_months']} → {lc['full_months']} months unpaid, +{lc['per_extension']} per extension, +{lc.get('opened_still_unpaid_bonus', 0)} if the building opened with the loan still outstanding", "From": "Part A recorded_loans"},
-        {"Term": "O · Opening delay", "Weight": w["opening_delay"], "0 → 1": f"{od['start_months']} → {od['full_months']} months late (under {od['start_months']} is normal)", "From": "Part B projects"},
+        {"Term": "L · Loan clock (construction, or any short-term loan that needed an extension)", "Weight": w["loan_clock"], "0 → 1": f"{lc['start_months']} → {lc['full_months']} months unpaid, +{lc['per_extension']} per extension, +{lc.get('opened_still_unpaid_bonus', 0)} if the building opened with the loan still outstanding", "From": "County recorder (recorded_loans / Reader) + public SEC loan filings: past maturity = 1.0, 'modified' flag = an extension"},
+        {"Term": "O · Opening delay", "Weight": w["opening_delay"], "0 → 1": f"{od['start_months']} → {od['full_months']} months late (under {od['start_months']} is normal)", "From": f"Project websites (Part B projects); if none, a public new-construction permit with no certificate of occupancy (months since issue − {od.get('expected_build_months', 24)})"},
         {"Term": "C · Creative signals (combined)", "Weight": w["creative"], "0 → 1": "1 − Π(1 − q·s) over the signals below", "From": "see below"},
     ]), hide_index=True, use_container_width=True)
     st.markdown(f"**Creative signals** (weight {w['creative']} combined; each counts as reliability q × strength s; together at most {c['max_confirmations']} anti-fluke confirmations)")
@@ -891,6 +891,7 @@ def page_how(con, run_id):
         {"Signal": "X · Cost squeeze", "s = 0 → 1": f"(expense growth − revenue growth since best year) ÷ {xs['full_gap']:.0%}", "q": xs["reliability"], "From": "operating_metrics"},
         {"Signal": "K · Concession creep", "s = 0 → 1": f"(free months per lease-year now − 6+ months ago) ÷ {kc['full_per_year']}", "q": kc["reliability"], "From": "B rent_observations (free rent + lease term)"},
         {"Signal": "Lq · Licensing / care", "s = 0 → 1": "CMS 1-star 0.8 · 2-star 0.5 · abuse +0.2 · state distress 0.8", "q": lq["reliability"], "From": "A licensing_records"},
+        {"Signal": "W · Value cut", "s = 0 → 1": f"(value at securitization − most recent value) ÷ value at securitization ÷ {c.get('value_cut', {}).get('full_drop', 0.5):.0%}", "q": c.get("value_cut", {}).get("reliability", 1.0), "From": "Public SEC CMBS loan filings (Schedule AL valuation fields)"},
     ]), hide_index=True, use_container_width=True)
     cor = {int(k): v for k, v in cfg["corroboration"].items()}   # JSON turns the keys into text
     st.markdown(f"""

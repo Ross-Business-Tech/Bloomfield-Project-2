@@ -202,6 +202,21 @@ def parse_asset_xml(path: Path, cfg: dict, *, deal_name: str, file_id: str) -> P
             "watchlist_flag": None,          # not in ABS-EE
             "servicer_commentary": None,     # not in ABS-EE
             "report_period": period, "file_id": file_id, "collected_at": now,
+            # Item 1125 extras (stored on loans; also fed to operating_metrics below)
+            "origination_date": to_date(get("origination_date")),
+            "modified_indicator": _yes(get("modified")),
+            "value_securitization": to_float(get("sec_value")),
+            "value_securitization_date": to_date(get("sec_value_date")),
+            "value_recent": to_float(get("recent_value")),
+            "value_recent_date": to_date(get("recent_value_date")),
+            "_ops": {
+                "sec_occupancy": _fraction(get("sec_occupancy"), pct_threshold),
+                "sec_revenue": to_float(get("sec_revenue")), "sec_expenses": to_float(get("sec_expenses")),
+                "sec_noi": to_float(get("sec_noi")),
+                "recent_revenue": to_float(get("recent_revenue")),
+                "recent_expenses": to_float(get("recent_expenses")), "recent_noi": to_float(get("recent_noi")),
+                "fin_start": to_date(get("fin_start")), "fin_end": to_date(get("fin_end")),
+            },
         }
         elem.clear()
     return ParseResult(list(rows.values()), found, seen, sample_tags)
@@ -225,9 +240,26 @@ def audit_tags(result: ParseResult, cfg: dict) -> list[str]:
 # ---------------------------------------------------------------------------
 # Loading
 # ---------------------------------------------------------------------------
+EXTRA_LOAN_COLUMNS = {"origination_date": "DATE", "modified_indicator": "BOOLEAN", "value_securitization": "DOUBLE",
+                      "value_securitization_date": "DATE", "value_recent": "DOUBLE", "value_recent_date": "DATE"}
+
+
+def ensure_loan_columns(con) -> None:
+    """Reg AB II extras on the loans table (added in place, so existing databases keep working)."""
+    for col, typ in EXTRA_LOAN_COLUMNS.items():
+        con.execute(f"ALTER TABLE loans ADD COLUMN IF NOT EXISTS {col} {typ}")
+
+
+def _yes(v) -> bool | None:
+    if v is None:
+        return None
+    return str(v).strip().lower() in ("y", "yes", "true", "1")
+
+
 def write_loans(con, result: ParseResult) -> int:
     """Write the rows, keeping only the most recent report per loan. Returns how many were written."""
-    return sum(1 for r in result.rows if db.upsert_loan_if_newer(con, r))
+    ensure_loan_columns(con)
+    return sum(1 for r in result.rows if db.upsert_loan_if_newer(con, {k: v for k, v in r.items() if k != "_ops"}))
 
 
 def _rows_exist(con, file_id: str) -> bool:
@@ -274,22 +306,52 @@ def process_filing(con, run, filing: Filing, cfg: dict, session=None) -> None:
         run.new_file() if res.status == "new" else run.skipped()
 
 
+def _months(start, end) -> int:
+    if not start or not end or end <= start:
+        return 12
+    return max(1, min(12, round((end - start).days / 30.44)))
+
+
+def _put_ops(con, link, period, months, values: dict, source: str, file_id) -> bool:
+    """One operating_metrics row per loan per period (merging into an existing row for the same period)."""
+    values = {k: v for k, v in values.items() if v is not None}
+    if not period or not values:
+        return False
+    old = con.execute("SELECT occupancy, revenue, expenses, noi FROM operating_metrics WHERE link_id = ? AND "
+                      "period_end = ? AND source LIKE 'sec_edgar%'", [link, period]).fetchone()
+    merged = dict(zip(("occupancy", "revenue", "expenses", "noi"), old)) if old else {}
+    merged.update(values)
+    con.execute("DELETE FROM operating_metrics WHERE link_id = ? AND period_end = ? AND source LIKE 'sec_edgar%'",
+                [link, period])
+    con.execute("INSERT INTO operating_metrics (link_id, period_end, period_months, occupancy, revenue, expenses, noi, "
+                "source, file_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [link, period, months, merged.get("occupancy"), merged.get("revenue"), merged.get("expenses"),
+                 merged.get("noi"), source, file_id])
+    return True
+
+
 def write_operating_metrics(con, result: ParseResult) -> int:
-    """Also feed each loan's occupancy report into operating_metrics, one row per loan per report
-    period. Signal Q (occupancy slide) reads the HISTORY there; the loans table keeps only the newest
-    report. ABS-EE has no NOI/revenue/expense tags (see config/edgar.yaml), so only occupancy is fed -
-    the income-erosion and cost-squeeze signals stay unfed rather than guessing."""
+    """Feed each loan's public Schedule AL operating data into operating_metrics (one row per loan per period):
+      * the occupancy reported for this period (history for the occupancy slide, Q);
+      * the SECURITIZATION baseline - underwritten revenue, expenses, NOI and occupancy, dated at origination;
+      * the MOST RECENT operating statement - revenue, expenses, NOI for its own period.
+    Baseline + most recent give a before/after from one public filing for Q, V (income erosion) and
+    X (cost squeeze). DSCR is not used (team decision)."""
     from scorer.equation import create_equation_tables
     create_equation_tables(con)
     written = 0
     for r in result.rows:
-        if r.get("occupancy") is None or not r.get("report_period"):
-            continue
-        con.execute("DELETE FROM operating_metrics WHERE link_id = ? AND period_end = ? AND source = 'sec_edgar'",
-                    [r["loan_key"], r["report_period"]])
-        con.execute("INSERT INTO operating_metrics (link_id, period_end, period_months, occupancy, source, file_id) "
-                    "VALUES (?, ?, 12, ?, 'sec_edgar', ?)", [r["loan_key"], r["report_period"], r["occupancy"], r["file_id"]])
-        written += 1
+        o, link, fid = r.get("_ops") or {}, r["loan_key"], r["file_id"]
+        if r.get("occupancy") is not None:
+            written += _put_ops(con, link, r.get("report_period"), 12, {"occupancy": r["occupancy"]}, "sec_edgar", fid)
+        base_date = r.get("origination_date") or r.get("value_securitization_date")
+        written += _put_ops(con, link, base_date, 12,
+                            {"occupancy": o.get("sec_occupancy"), "revenue": o.get("sec_revenue"),
+                             "expenses": o.get("sec_expenses"), "noi": o.get("sec_noi")},
+                            "sec_edgar_securitization", fid)
+        written += _put_ops(con, link, o.get("fin_end"), _months(o.get("fin_start"), o.get("fin_end")),
+                            {"revenue": o.get("recent_revenue"), "expenses": o.get("recent_expenses"),
+                             "noi": o.get("recent_noi")}, "sec_edgar_financials", fid)
     return written
 
 
@@ -302,6 +364,7 @@ def load_file(con, run, file_id: str, path: Path, deal_name: str, cfg: dict) -> 
     audit_tags(result, cfg)
     written = write_loans(con, result)
     write_operating_metrics(con, result)
+    db.set_state(con, COLLECTOR, f"schedule_al_v2:{file_id}", "done")
     log.info("%s: %d loans read, %d written", deal_name, len(result.rows), written)
     return written
 
@@ -317,14 +380,20 @@ def load_unparsed_manual_files(con, run, cfg: dict) -> int:
     from scorer.equation import create_equation_tables
     create_equation_tables(con)
     rows = con.execute(
-        "SELECT r.file_id, r.file_path, r.notes FROM raw_files r WHERE r.source = 'sec_edgar' AND r.file_type = 'xml' "
-        "AND NOT EXISTS (SELECT 1 FROM operating_metrics m WHERE m.file_id = r.file_id)").fetchall()
+        "SELECT r.file_id, r.file_path, r.notes FROM raw_files r WHERE r.source = 'sec_edgar' AND r.file_type = 'xml'"
+    ).fetchall()
+    # Re-read a file once for the Schedule AL operating/valuation fields (bookmark "schedule_al_v2"), so
+    # files collected before those fields were captured get them too (one-time backfill).
+    rows = [r for r in rows
+            if not db.get_state(con, COLLECTOR, f"schedule_al_v2:{r[0]}")
+            or not con.execute("SELECT 1 FROM operating_metrics m WHERE m.file_id = ? LIMIT 1", [r[0]]).fetchone()]
     n = 0
     for file_id, file_path, notes in rows:
         m = re.search(r"deal=([^;]+)", notes or "")
         deal = m.group(1).strip() if m else "UNKNOWN TRUST (manual upload)"
         try:
             n += 1 if load_file(con, run, file_id, config.from_stored_path(file_path), deal, cfg) else 0
+            db.set_state(con, COLLECTOR, f"schedule_al_v2:{file_id}", "done")
         except Exception as e:                                   # a bad file must not stop the rest
             run.error(f"could not parse {file_id}: {e}")
     return n

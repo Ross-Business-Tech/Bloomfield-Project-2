@@ -30,8 +30,8 @@ Score = min(100, Early + Late)
 
 | Term | What it measures | Strength 0 → 1 | Weight | Data from |
 |---|---|---|---|---|
-| **L** loan clock | A **construction loan**, or any **short-term loan that has needed an extension/modification** (bridge, value-add), still not paid off by a permanent loan or release | 0 before 30 months → 1 at 60 months. +0.1 per extension (max +0.2); +0.25 if a construction loan's building opened with the loan still outstanding | 50 | Part A `recorded_loans` |
-| **O** opening delay | Months past the latest reasonable opening date, page still "coming soon" | 0 under 6 months (normal) → 1 at 18 months. +0.1 missed student move-in, +0.05 per date slip (max +0.1) | 20 | Part B `projects` |
+| **L** loan clock | A **construction loan**, or any **short-term loan that has needed an extension/modification** (bridge, value-add), still not paid off by a permanent loan or release | 0 before 30 months → 1 at 60 months. +0.1 per extension (max +0.2); +0.25 if a construction loan's building opened with the loan still outstanding | 50 | County recorder (`recorded_loans` / Reader) **and public SEC CMBS loan filings**: a loan past its maturity date and still outstanding = 1.0; the servicer's "modified" flag counts as an extension |
+| **O** opening delay | Months past the latest reasonable opening date, page still "coming soon" | 0 under 6 months (normal) → 1 at 18 months. +0.1 missed student move-in, +0.05 per date slip (max +0.1) | 20 | Project websites (Part B `projects`); **if none, a public new-construction building permit with no certificate of occupancy**: months overdue = months since issue − 24 (typical build) |
 | **C** creative | All creative signals below, combined | 1 − Π(1 − q·s) | 30 | see below |
 | **C(k)** corroboration | **Nov 2026: removed.** A single signal counts in full (1, 2 or 3+ signals → 1.0), because much of the data isn't public | 1.0 | × | — |
 | **Late** | Court/legal filing or lender/trustee default notice: 6. Contractor liens: 2 each, max 4. Older than 180 days counts half; filings dated after the scoring date are ignored | — | max 10 | Part B `filing_fields` |
@@ -46,6 +46,7 @@ Score = min(100, Early + Late)
 | **X** cost squeeze | (expense growth − revenue growth since the best year) ÷ 15 pts | 0.6 | `operating_metrics` |
 | **K** concession creep | (free months **per year of lease term** now − 6+ months earlier) ÷ 1 month. Unknown term = 12 months | 0.7 | B `rent_observations` (free rent + lease term) |
 | **Lq** licensing / care | CMS 1-star 0.8, 2-star 0.5; abuse flag +0.2; state license distress 0.8 | 0.6 | A `licensing_records` |
+| **W** value cut | (value at securitization − most recent value) ÷ value at securitization ÷ 50% | 1.0 | Public SEC CMBS loan filings (Schedule AL valuation fields) |
 
 Related creative signals (e.g. falling occupancy and falling income) count as at most **2** anti-fluke confirmations, so one story can't confirm itself.
 
@@ -151,3 +152,21 @@ open-data source) are loaded by `python -m collectors.permits` (part of `collect
 `permit_inspections` and `filing_fields`. That turns on **I** (site inactivity), the certificate-of-occupancy
 check behind "opened but construction loan still outstanding", and the stale-opening check. Column names follow
 the BLDS open permit-data standard, with aliases and per-county overrides. Residential permits are skipped.
+
+## Public data behind each signal (Nov 2026)
+Every input now has a public, regularly published source:
+
+| Signal | Public source |
+|---|---|
+| L loan clock | County recorder (via NETR); SEC EDGAR CMBS Schedule AL: maturity date + balance, `modifiedIndicator` |
+| O opening delay | Project / leasing websites and Wayback Machine; city building permits + certificates of occupancy |
+| Q occupancy slide | SEC Schedule AL: occupancy at securitization vs. most recent (plus each monthly report) |
+| V income erosion | SEC Schedule AL: NOI at securitization vs. most recent operating statement |
+| X cost squeeze | SEC Schedule AL: revenue and operating expenses at securitization vs. most recent |
+| W value cut | SEC Schedule AL: value at securitization vs. most recent value |
+| R rent vs. city | Leasing pages / Wayback (property) vs. Zillow ZORI city index (`collectors/market_rents.py`) |
+| K concession creep | Leasing pages / Wayback (free rent and lease term) |
+| I site inactivity | City open-data permit and inspection records (`collectors/permits.py`) |
+| Lq licensing / care | CMS Care Compare and state licensing data |
+
+DSCR is still not scored (team decision), even though SEC filings report it.

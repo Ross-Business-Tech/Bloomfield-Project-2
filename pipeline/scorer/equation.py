@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -195,7 +196,27 @@ def loan_records(p: Property) -> list[dict]:
                     "recording_date": d, "amount": f.get("loan_amount"), "grantee": f.get("lender_name"),
                     "grantor": f.get("borrower_name"), "instrument_number": f.get("case_number"),
                     "property_address": f.get("property_address"), "state": f.get("property_state")})
+    # Public CMBS loan filings (SEC Schedule AL): a loan the servicer reports as MODIFIED counts like a
+    # recorded modification on that loan, dated at the report that first shows it (or the report itself).
+    for ln in p.cmbs_loans:
+        if not ln.get("modified_indicator") or not as_date(ln.get("origination_date")):
+            continue
+        base = {"record_id": ln.get("loan_key"), "loan_kind": "unknown", "recording_date": as_date(ln["origination_date"]),
+                "amount": ln.get("original_balance"), "grantee": ln.get("servicer_name"), "source": "sec_edgar"}
+        out.append(base)
+        out.append({**base, "record_id": f"{ln.get('loan_key')}:modified", "loan_kind": "modification",
+                    "recording_date": as_date(ln.get("report_period")) or as_date(ln["origination_date"])})
     return out
+
+
+def past_maturity_loan(p: Property, as_of: date):
+    """A public CMBS loan that is past its maturity date and still outstanding (balance > 0)."""
+    for ln in p.cmbs_loans:
+        m = as_date(ln.get("maturity_date"))
+        reported = as_date(ln.get("report_period"))
+        if m and m < as_of and (ln.get("current_balance") or 0) > 0 and (not reported or reported >= m):
+            return ln, m
+    return None
 
 
 def clock_loan(p: Property, as_of: date | None = None):
@@ -218,6 +239,13 @@ def clock_loan(p: Property, as_of: date | None = None):
 
 
 def loan_clock(p: Property, c: dict, as_of: date) -> Part:
+    pm = past_maturity_loan(p, as_of)
+    if pm:
+        # Public loan filing still shows a balance after the maturity date: the loan was never refinanced
+        # or paid off. That is the loan clock run out, whatever kind of loan it is.
+        ln, m = pm
+        return Part(1.0, True, f"public loan filing: past its maturity date ({m}) and still outstanding "
+                               f"(${(ln.get('current_balance') or 0) / 1e6:.1f}M)")
     loan = clock_loan(p, as_of)
     if not loan:
         return Part()
@@ -270,6 +298,32 @@ def opening_delay(p: Property, c: dict, as_of: date) -> Part:
             why += f" (under {c['start_months']} months is normal)"
         if value >= best.value:
             best = Part(value, True, why)
+    if best.known:
+        return best
+    return permit_opening_delay(p, c, as_of)
+
+
+NEW_CONSTRUCTION = re.compile(r"\bnew\b|new (building|construction|commercial|multi)", re.I)
+
+
+def permit_opening_delay(p: Property, c: dict, as_of: date) -> Part:
+    """Public fallback when no project website date is tracked: a NEW-CONSTRUCTION building permit with no
+    certificate of occupancy. Months overdue = months since the permit was issued - expected build time."""
+    if any(filing_kind(f) == "certificate_of_occupancy" and (filing_date(f) or date.min) <= as_of for f in p.filings):
+        return Part()
+    best = Part()
+    for f in p.filings:
+        if filing_kind(f) != "building_permit" or not NEW_CONSTRUCTION.search(str(f.get("permit_status") or "")):
+            continue
+        issued = filing_date(f)
+        if not issued or issued > as_of:
+            continue
+        overdue = max(0.0, months_between(issued, as_of) - c.get("expected_build_months", 24))
+        value = ramp(overdue, c["start_months"], c["full_months"])
+        why = (f"public permit {f.get('permit_number') or ''}: new construction issued {issued}, no certificate of "
+               f"occupancy; {overdue:.0f} months past a typical {c.get('expected_build_months', 24)}-month build")
+        if value >= best.value:
+            best = Part(value, True, why.replace("permit  ", "permit "))
     return best
 
 
@@ -411,6 +465,7 @@ def creative_signals(p: Property, facts: dict, cfg: dict, as_of: date, rents, ma
         cr.cost_squeeze(p, c["cost_squeeze"], extra.get("ops", {}), as_of),
         cr.concession_creep(p, c["concession_creep"], extra.get("concessions", {}), as_of),
         cr.licensing_quality(p, c["licensing_quality"], extra.get("licenses", {}), as_of),
+        cr.value_cut(p, c["value_cut"], as_of),
     ]
 
 
@@ -431,7 +486,8 @@ def applicable_terms(p: Property, cfg: dict, as_of: date) -> dict:
     deadlines = [as_date(pr.get("opening_deadline")) for pr in p.projects if pr.get("opening_deadline")]
     recent_opening = any(d and months_between(d, as_of) <= a["recent_opening_months"] for d in deadlines)
     return {
-        "loan_clock": clock_loan(p, as_of) is not None or pre_opening or recent_build,
+        "loan_clock": clock_loan(p, as_of) is not None or past_maturity_loan(p, as_of) is not None
+                      or pre_opening or recent_build,
         # a construction loan means something is being built: its opening date is unknown, not inapplicable
         "opening_delay": pre_opening or recent_opening or "construction" in kinds or recent_build,
         "creative": True,
@@ -551,9 +607,10 @@ def load_inputs(con):
         # Coverage evidence: which states actually have readable inspection records (filing side of
         # the same permits). A state with none means "we can't see inspections there", NOT "no
         # inspections happened" - I must stay unknown for those properties.
-        for (st,) in con.execute(
+        coverage_rows = [] if not table_exists(con, "filing_fields") else con.execute(
                 "SELECT DISTINCT property_state FROM filing_fields WHERE filing_type = 'building_permit' "
-                "AND permit_number IN (SELECT permit_number FROM permit_inspections)").fetchall():
+                "AND permit_number IN (SELECT permit_number FROM permit_inspections)").fetchall()
+        for (st,) in coverage_rows:
             if st:
                 extra["inspection_coverage"].add(str(st).upper())
     return rents, market, inspections, extra
