@@ -663,10 +663,12 @@ def page_detail(con, run_id):
                    "the reviewed assessment below is the complete evaluation.")
 
     st.subheader("AI research")
+    # The research agent's tables only exist once it has run (not in the made-up demo database).
+    has_agent = eq.table_exists(con, "agent_runs") and eq.table_exists(con, "evidence")
     aruns = con.execute(
         "SELECT status, started_at, final_answer FROM agent_runs "
         "WHERE goal LIKE '%[property_id=' || ? || ']%' "
-        "ORDER BY started_at DESC LIMIT 3", [pid]).fetchall()
+        "ORDER BY started_at DESC LIMIT 3", [pid]).fetchall() if has_agent else []
     if not aruns:
         st.caption("The research agent has not covered this property yet.")
     for a_status, a_started, a_final in aruns:
@@ -681,7 +683,7 @@ def page_detail(con, run_id):
         "SELECT e.claim, e.value, e.source_kind, e.source_url, e.quote, e.observed_at "
         "FROM evidence e JOIN agent_runs r ON r.run_id = e.run_id "
         "WHERE r.goal LIKE '%[property_id=' || ? || ']%' "
-        "ORDER BY e.observed_at DESC", [pid]).fetchall()
+        "ORDER BY e.observed_at DESC", [pid]).fetchall() if has_agent else []
     if ev_rows:
         st.markdown(f"**Source-matched evidence ({len(ev_rows)}):** the quote appears verbatim on the "
                     "saved page at the address shown. That proves the words are on that page - it does "
