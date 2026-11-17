@@ -866,7 +866,7 @@ def page_how(con, run_id):
 - Auctions and CMBS are shown as context only, never scored.
 - County records are found through **NETR Online** (`python -m collectors.discover`), recorders first because they feed the loan clock.
 """)
-    st.latex(r"C = 1-\prod_{j\in\{R,I,Q,V,X,K,L_q,W\}}\left(1-q_j\,s_j\right)")
+    st.latex(r"C = 1-\prod_{j\in\{R,Q,V,W,T,U\}}\left(1-q_j\,s_j\right)")
     st.latex(r"\text{Early}=\sum_{L,O,C} w_i\, s_i \times \begin{cases}\max(\text{boost}(s_i),\ \text{rescale}) & s_i\ge %s\\ \text{rescale} & \text{otherwise}\end{cases}"
              % so.get("boost_starts_at", 0.6))
     st.latex(r"\text{boost}(s)=1+%s\times\frac{s-%s}{%s-%s}" % (so.get("max_boost", 1.5) - 1, so.get("boost_starts_at", 0.6),
@@ -875,23 +875,24 @@ def page_how(con, run_id):
     st.latex(r"\text{Score}=\min\!\left(100,\ \text{Early}\times %s^{\,\#\text{counter-signals}}+\text{Late}\right)" % cs["factor"])
     lc, od, rd, ig = cfg["loan_clock"], cfg["opening_delay"], cfg["rent_decline"], cfg["inspection_gap"]
     c = cfg["creative"]
-    qo, iv, xs, kc, lq = (c["occupancy_slide"], c["income_erosion"], c["cost_squeeze"], c["concession_creep"],
-                          c["licensing_quality"])
+    qo, iv, vc, ut, uc = (c["occupancy_slide"], c["income_erosion"], c.get("value_cut", {}), c["unpaid_tax"],
+                          c["compliance_trouble"])
+    va = vc.get("assessor", {})
     st.dataframe(pd.DataFrame([
         {"Term": "L · Loan clock (construction, or any short-term loan that needed an extension)", "Weight": w["loan_clock"], "0 → 1": f"{lc['start_months']} → {lc['full_months']} months unpaid, +{lc['per_extension']} per extension, +{lc.get('opened_still_unpaid_bonus', 0)} if the building opened with the loan still outstanding", "From": "County recorder (recorded_loans / Reader) + public SEC loan filings: past maturity = 1.0, 'modified' flag = an extension"},
-        {"Term": "O · Opening delay", "Weight": w["opening_delay"], "0 → 1": f"{od['start_months']} → {od['full_months']} months late (under {od['start_months']} is normal)", "From": f"Project websites (Part B projects); if none, a public new-construction permit with no certificate of occupancy (months since issue − {od.get('expected_build_months', 24)})"},
+        {"Term": "O · Opening delay", "Weight": w["opening_delay"], "0 → 1": f"{od['start_months']} → {od['full_months']} months late (under {od['start_months']} is normal)", "From": f"Project websites (Part B projects); if none, a public new-construction permit with no certificate of occupancy (months since issue − {od.get('expected_build_months', 24)}); or **site inactivity**: {ig['start_days']} → {ig['full_days']} days since a city inspection on an unfinished building × q {ig['reliability']} (the larger counts)"},
         {"Term": "C · Creative signals (combined)", "Weight": w["creative"], "0 → 1": "1 − Π(1 − q·s) over the signals below", "From": "see below"},
     ]), hide_index=True, use_container_width=True)
-    st.markdown(f"**Creative signals** (weight {w['creative']} combined; each counts as reliability q × strength s; together at most {c['max_confirmations']} anti-fluke confirmations)")
+    st.markdown(f"**Creative signals** (weight {w['creative']} combined; each counts as reliability q × strength s). "
+                "Every one is **general** (works for CMBS, Fannie/Freddie, bank, bridge and construction loans, and any "
+                "property type) and **public**: the best public source the property has is used; none = *don't have* (0).")
     st.dataframe(pd.DataFrame([
-        {"Signal": "R · Rent vs. city", "s = 0 → 1": f"(city rent change − property rent change) ÷ {rd['full_gap']:.0%}", "q": rd["reliability"], "From": "B rent_observations + A market_rents"},
-        {"Signal": "I · Site inactivity", "s = 0 → 1": f"{ig['start_days']} → {ig['full_days']} days since a city inspection", "q": ig["reliability"], "From": "A permit_inspections"},
-        {"Signal": "Q · Occupancy slide", "s = 0 → 1": f"(peak occ. last {qo['lookback_months']} mo − occ. now − market drop) ÷ {qo['full_gap']:.0%}", "q": qo["reliability"], "From": "operating_metrics + market_occupancy"},
-        {"Signal": "V · Income erosion", "s = 0 → 1": f"NOI drop from its best year (last {iv['lookback_months']} mo) ÷ {iv['full_noi_drop']:.0%}", "q": iv["reliability"], "From": "operating_metrics (public disclosures; no DSCR)"},
-        {"Signal": "X · Cost squeeze", "s = 0 → 1": f"(expense growth − revenue growth since best year) ÷ {xs['full_gap']:.0%}", "q": xs["reliability"], "From": "operating_metrics"},
-        {"Signal": "K · Concession creep", "s = 0 → 1": f"(free months per lease-year now − 6+ months ago) ÷ {kc['full_per_year']}", "q": kc["reliability"], "From": "B rent_observations (free rent + lease term)"},
-        {"Signal": "Lq · Licensing / care", "s = 0 → 1": "CMS 1-star 0.8 · 2-star 0.5 · abuse +0.2 · state distress 0.8", "q": lq["reliability"], "From": "A licensing_records"},
-        {"Signal": "W · Value cut", "s = 0 → 1": f"(value at securitization − most recent value) ÷ value at securitization ÷ {c.get('value_cut', {}).get('full_drop', 0.5):.0%}", "q": c.get("value_cut", {}).get("reliability", 1.0), "From": "Public SEC CMBS loan filings (Schedule AL valuation fields)"},
+        {"Signal": "R · Rent vs. city", "s = 0 → 1": f"(city rent change − property effective rent change) ÷ {rd['full_gap']:.0%}; effective rent = asking × (1 − free months ÷ lease term)", "q": rd["reliability"], "Public sources (best first)": "Leasing pages / listing sites vs. HUD, Census or market rents for its type"},
+        {"Signal": "Q · Occupancy slide", "s = 0 → 1": f"(peak occ. last {qo['lookback_months']} mo − occ. now − market drop) ÷ {qo['full_gap']:.0%}", "q": qo["reliability"], "Public sources (best first)": f"1. CMBS SEC filings / Fannie Mae / Freddie Mac loan data · 2. share of the building listed for lease (q × {qo.get('listing_penalty', 0.7)})"},
+        {"Signal": "V · Income erosion", "s = 0 → 1": f"NOI drop from its best year (last {iv['lookback_months']} mo) ÷ {iv['full_noi_drop']:.0%}; NOI = revenue − expenses, so rising costs count", "q": iv["reliability"], "Public sources (best first)": "CMBS SEC filings / Fannie Mae / Freddie Mac loan data (no DSCR)"},
+        {"Signal": "W · Value cut", "s = 0 → 1": f"1. appraisal drop ÷ {vc.get('full_drop', 0.5):.0%} · 2. (county's assessed-value change − property's) ÷ {va.get('full_gap', 0.25):.0%}", "q": f"{vc.get('reliability', 1.0)} / {va.get('reliability', 0.6)}", "Public sources (best first)": f"1. CMBS SEC filings · 2. county assessor roll (last {va.get('lookback_years', 3)} years)"},
+        {"Signal": "T · Unpaid property tax", "s = 0 → 1": f"any missed installment {ut['first_missed']}, rising to 1 at {ut['full_months']} months past due; paid current = 0", "q": ut["reliability"], "Public sources (best first)": "County treasurer / tax collector, delinquent-tax notices"},
+        {"Signal": "U · Compliance trouble", "s = 0 → 1": f"{uc['per_open_violation']} per open code / fire / health violation (last {uc['lookback_months']} mo); unsafe / condemned / vacate order = 1; CMS 1-star 0.8 · 2-star 0.5 · state license distress 0.8", "q": uc["reliability"], "Public sources (best first)": "City code enforcement, fire / health inspections, state licensing, CMS"},
     ]), hide_index=True, use_container_width=True)
     cor = {int(k): v for k, v in cfg["corroboration"].items()}   # JSON turns the keys into text
     st.markdown(f"""
@@ -899,7 +900,7 @@ def page_how(con, run_id):
 - **Strength boost:** a signal at ≥ {so.get('boost_starts_at', 0.6):.0%} strength counts more, rising to ×{so.get('max_boost', 1.5)} at {so.get('boost_full_at', 1.0):.0%} (for C, the strongest single creative signal decides). The boost and the rescale don't stack: the larger is used.
 - **⭐ STANDOUT** tag: a signal at ≥ {so['at_strength']:.0%} strength.
 - **↩ COUNTER-SIGNAL:** strong evidence the other way (rent beating its city by {cs['rent_beats_city_by']:.0%}+, or a city inspection in the last {cs['inspected_within_days']} days) multiplies early points by {cs['factor']} each.
-- **Ready to act (max {late['max_points']}):** court/legal filing {late['court_points']}, contractor liens {late['lien_points']} each up to {late['max_lien_points']}. Older than {late['recent_days']} days count half.
+- **Ready to act (max {late['max_points']}):** court/legal filing or a county tax lien / tax sale {late['court_points']}, contractor liens {late['lien_points']} each up to {late['max_lien_points']}. Older than {late['recent_days']} days count half.
 - **Not scored:** Ten-X auctions and CMBS data are shown as context only.
 - **Tiers (formula audit names):** hot ≥ {cfg['tiers']['hot']}, watch ≥ {cfg['tiers']['watch']} - displayed in the app as Priority Review / Monitor.
 

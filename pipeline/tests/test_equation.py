@@ -157,7 +157,7 @@ def test_ann_arbor_example_is_hot(cfg):
     rents = {"p1": [(date(2026, 1, 15), 1250.0), (date(2026, 10, 20), 1095.0)]}
     market = {("ann arbor", "MI"): [(date(2026, 1, 1), 100.0), (date(2026, 10, 1), 101.0)]}
     r = score(p, cfg, rents, market, {"BP-9": [date(2026, 6, 1)]})
-    assert r.showing == 4 and r.corroboration == 1.0
+    assert r.showing == 3 and r.corroboration == 1.0      # L, O (late + quiet site), C (rent sliding)
     assert r.tier == "hot" and r.score > 70
 
 

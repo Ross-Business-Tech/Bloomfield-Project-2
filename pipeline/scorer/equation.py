@@ -1,16 +1,18 @@
 """
 equation.py - the Bloomfield Opportunity Score (0-100), built from Bloomfield's feedback.
 
-    Score = min(100,  C(k) x (50 L + 20 O + 15 R + 15 I)  +  Late)
+    Score = min(100,  Early x 0.85^(counter-signals)  +  Late)
+    Early = 50 L + 20 O + 30 C, each term x max(strength boost, rescale for terms that can't apply)
 
-  L  loan clock        construction loan still unpaid, 30 -> 60 months      (Part A recorded_loans)
-  O  opening delay     months past the latest reasonable opening, 6 -> 18  (Part B projects)
-  R  rent decline      property rent change vs. its city's, 0 -> 15 pts    (Part B rent_observations
-                                                                            + Part A market_rents)
-  I  inspection gap    days with no city inspection on an open permit,    (Part A permit_inspections
-                       60 -> 180                                           + Part B filing_fields permits)
-  C(k) anti-fluke      k = how many of L, O, R, I show (>= 0.25):  1 -> 0.5, 2 -> 0.8, 3+ -> 1.0
-  Late                 court/UCC/foreclosure filings and contractor liens, at most 10 points
+  L  loan clock        construction / extended loan still unpaid, 30 -> 60 months; past maturity = 1
+                       (county recorder, SEC CMBS filings)
+  O  opening delay     months past the latest reasonable opening, 6 -> 18 (project websites, or a public
+                       new-construction permit with no certificate of occupancy), or SITE INACTIVITY:
+                       days with no city inspection on an open permit, 60 -> 180 (the larger counts)
+  C  creative          1 - PRODUCT(1 - q x s) over six GENERAL public signals (scorer/creative.py):
+                       R rent vs. city, Q occupancy slide, V income erosion, W value cut,
+                       T unpaid property tax, U compliance trouble
+  Late                 court/UCC/foreclosure filings, tax liens / tax sales, contractor liens, at most 10 points
 
 Records are grouped into properties by Part C (scorer.group uses Part C's property_links).
 Every number comes from config/equation.yaml. The plain-English version is scorer/EQUATION.md.
@@ -59,7 +61,8 @@ CREATE TABLE IF NOT EXISTS market_rents (
     state         TEXT,
     period        DATE,
     rent_index    DOUBLE,
-    source        TEXT
+    source        TEXT,
+    property_type TEXT         -- NULL = city-wide housing index; else e.g. Office (a broker / county rent survey)
 );
 -- Part A (permits.py): every inspection recorded on a building permit.
 CREATE TABLE IF NOT EXISTS permit_inspections (
@@ -101,10 +104,12 @@ STANDOUT_LABEL = {"loan_clock": "Standout loan clock", "opening_delay": "Standou
                   "creative": "Standout creative signals",
                   "rent_decline": "Standout rent decline", "inspection_gap": "Standout site inactivity"}
 
+# Unpaid property tax is an EARLY creative signal (T) now; only a recorded tax lien / certificate sale /
+# tax sale (property_tax_status, see creative.tax_lien_rows) counts here as late.
 COURT_KINDS = {"foreclosure_notice", "receivership", "lis_pendens", "lender_lawsuit", "ucc_sale_notice",
-               "tax_delinquency", "default_notice"}
+               "default_notice"}
 COURT_TAGS = {"foreclosure_scheduled", "receiver_appointed", "lis_pendens", "lender_lawsuit",
-              "ucc_sale_scheduled", "tax_delinquent", "payment_default", "maturity_default",
+              "ucc_sale_scheduled", "payment_default", "maturity_default",
               "technical_default", "covenant_default", "forbearance"}
 
 
@@ -120,6 +125,7 @@ def create_equation_tables(con) -> None:
     con.execute("ALTER TABLE rent_observations ADD COLUMN IF NOT EXISTS lease_term_months DOUBLE")
     con.execute("ALTER TABLE operating_metrics ADD COLUMN IF NOT EXISTS disclosed_on DATE")
     con.execute("ALTER TABLE market_occupancy ADD COLUMN IF NOT EXISTS rent_per_unit_year DOUBLE")
+    con.execute("ALTER TABLE market_rents ADD COLUMN IF NOT EXISTS property_type TEXT")
 
 
 def ramp(x: float | None, start: float, full: float) -> float:
@@ -336,12 +342,17 @@ def _median(xs):
     return (xs[n // 2] if n % 2 else (xs[n // 2 - 1] + xs[n // 2]) / 2) if xs else None
 
 
+RESIDENTIAL = {"Multifamily", "Student housing", "Senior housing"}
+
+
 def rent_decline(p: Property, facts: dict, c: dict, rents: dict, market: dict, as_of: date,
-                 cfg_counter: dict | None = None) -> Part:
+                 cfg_counter: dict | None = None, ptype: str | None = None) -> Part:
+    """Rents are EFFECTIVE rents (asking x (1 - free months / lease term), see load_inputs), read off any public
+    leasing page or listing linked to the property (a project, a loan, a filing, or the property itself)."""
     cfg_counter = cfg_counter or {"rent_beats_city_by": 9e9}
     obs = []
-    for pr in p.projects:
-        obs += rents.get(str(pr.get("project_id")), [])
+    for i in cr.link_ids(p):
+        obs += rents.get(i, [])
     obs = [(d, r) for d, r in obs if d and r and (as_of - d).days <= c["window_days"] and d <= as_of]
     if len(obs) < c["min_observations"]:
         return Part()
@@ -355,9 +366,13 @@ def rent_decline(p: Property, facts: dict, c: dict, rents: dict, market: dict, a
     now = _median([r for _, r in obs[half:]] or [obs[-1][1]])
     prop_change = (now - then) / then
     key = ((facts.get("city") or "").strip().lower(), (facts.get("state") or "").strip().upper())
-    series = market.get(key)
+    # Market rents for its own property type first; a city-wide (apartment) index only serves housing.
+    series = market.get(key + (ptype,)) if ptype else None
+    if not series and (ptype is None or ptype in RESIDENTIAL):
+        series = market.get(key)
     if not series:
-        return Part(0.0, False, f"property rent changed {prop_change:+.1%}, but no market rents for its city")
+        return Part(0.0, False, f"property rent changed {prop_change:+.1%}, but don't have market rents for "
+                                f"its city{' and type' if ptype else ''}")
     m_then = _closest(series, first_d)
     m_now = _closest(series, last_d)
     mkt_change = (m_now - m_then) / m_then if m_then else 0.0
@@ -413,7 +428,7 @@ def inspection_gap(p: Property, c: dict, inspections: dict, as_of: date, cfg_cou
 # ---------------------------------------------------------------------------
 # Late: already happened, so a small add-on (Part B filing_fields)
 # ---------------------------------------------------------------------------
-def late_points(p: Property, facts: dict, c: dict, as_of: date) -> tuple[float, list[str]]:
+def late_points(p: Property, facts: dict, c: dict, as_of: date, tax_liens: list | None = None) -> tuple[float, list[str]]:
     def weight(f):
         d = filing_date(f)
         return 1.0 if d and (as_of - d).days <= c["recent_days"] else 0.5
@@ -434,6 +449,12 @@ def late_points(p: Property, facts: dict, c: dict, as_of: date) -> tuple[float, 
                 court = pts
                 kind = sorted(tags & COURT_TAGS)[0] if tags & COURT_TAGS else filing_kind(f)
                 why = [f"court/legal filing: {kind.replace('_', ' ')}" + ("" if weight(f) == 1 else " (old: counted at half)")]
+    for t in tax_liens or []:                 # tax lien / certificate sale / tax sale (county treasurer)
+        f = {"filing_date": t.get("as_of_date") or t.get("due_date")}
+        pts = c["court_points"] * weight(f)
+        if pts > court:
+            court = pts
+            why = [f"county tax record: {t.get('status')}" + ("" if weight(f) == 1 else " (old: counted at half)")]
     liens = 0.0
     for f in p.filings:
         if filing_kind(f) != "mechanics_lien" or not known_by(f):
@@ -450,23 +471,27 @@ def late_points(p: Property, facts: dict, c: dict, as_of: date) -> tuple[float, 
 # The equation
 # ---------------------------------------------------------------------------
 def creative_signals(p: Property, facts: dict, cfg: dict, as_of: date, rents, market, inspections, extra) -> list:
+    """The six GENERAL creative signals (any loan, any property type, public sources only)."""
     from .weekly import property_type          # (weekly imports this module; import here to avoid a loop)
     c = cfg["creative"]
-    R = rent_decline(p, facts, cfg["rent_decline"], rents, market, as_of, cfg["counter_signal"])
-    I = inspection_gap(p, cfg["inspection_gap"], inspections, as_of, cfg["counter_signal"],
-                       state=facts.get("state"), coverage=extra.get("inspection_coverage"))
     ptype = property_type(p)
+    R = rent_decline(p, facts, cfg["rent_decline"], rents, market, as_of, cfg["counter_signal"], ptype=ptype)
     return [
-        cr.Sig("R", R.value, R.known, R.why, cfg["rent_decline"]["reliability"], R.counter),
-        cr.Sig("I", I.value, I.known, I.why, cfg["inspection_gap"]["reliability"], I.counter),
+        cr.Sig("R", R.value, R.known, R.why if R.known or R.why != "no data" else cr.Sig("R").why,
+               cfg["rent_decline"]["reliability"], R.counter),
         cr.occupancy_slide(p, ptype, facts.get("state"), c["occupancy_slide"], extra.get("ops", {}),
-                           extra.get("mkt_occ", {}), as_of),
+                           extra.get("mkt_occ", {}), as_of, extra.get("listings", {})),
         cr.income_erosion(p, c["income_erosion"], extra.get("ops", {}), as_of),
-        cr.cost_squeeze(p, c["cost_squeeze"], extra.get("ops", {}), as_of),
-        cr.concession_creep(p, c["concession_creep"], extra.get("concessions", {}), as_of),
-        cr.licensing_quality(p, c["licensing_quality"], extra.get("licenses", {}), as_of),
-        cr.value_cut(p, c["value_cut"], as_of),
+        cr.value_cut(p, c["value_cut"], as_of, extra.get("assessed", {}), extra.get("county_trend", {})),
+        cr.unpaid_tax(p, c["unpaid_tax"], as_of, extra.get("tax", {})),
+        cr.compliance_trouble(p, c["compliance_trouble"], as_of, extra.get("compliance", {}), extra.get("licenses", {})),
     ]
+
+
+def site_inactivity(p: Property, cfg: dict, inspections: dict, as_of: date, facts: dict, extra: dict) -> Part:
+    """Site inactivity (part of O): days since the last city inspection on an unfinished building's permit."""
+    return inspection_gap(p, cfg["inspection_gap"], inspections, as_of, cfg["counter_signal"],
+                          state=facts.get("state"), coverage=extra.get("inspection_coverage"))
 
 
 def applicable_terms(p: Property, cfg: dict, as_of: date) -> dict:
@@ -507,11 +532,18 @@ def score_property(p: Property, cfg: dict, as_of: date, rents: dict, market: dic
     facts = property_facts(p)
     r = Result(p.property_id, facts)
     r.L = loan_clock(p, cfg["loan_clock"], as_of)
+    extra = extra or {}
     r.O = opening_delay(p, cfg["opening_delay"], as_of)
-    r.creative = creative_signals(p, facts, cfg, as_of, rents, market, inspections, extra or {})
+    # Site inactivity is part of the opening delay: O = max(lateness, q x inactivity).
+    r.I = site_inactivity(p, cfg, inspections, as_of, facts, extra)
+    inactive = r.I.value * cfg["inspection_gap"]["reliability"]
+    if r.I.known and inactive > r.O.value:
+        r.O = Part(inactive, True, f"site inactivity: {r.I.why}", r.I.counter)
+    elif r.I.counter and not r.O.counter:
+        r.O.counter = r.I.counter
+    r.creative = creative_signals(p, facts, cfg, as_of, rents, market, inspections, extra)
     by = {s.code: s for s in r.creative}
     r.R = Part(by["R"].value, by["R"].known, by["R"].why, by["R"].counter)
-    r.I = Part(by["I"].value, by["I"].known, by["I"].why, by["I"].counter)
     cval, cshow, cwhy = cr.combine(r.creative, cfg["creative"])
     r.C = Part(cval, any(s.known for s in r.creative), cwhy)
     counters = [s.counter for s in r.creative if s.counter]
@@ -524,6 +556,8 @@ def score_property(p: Property, cfg: dict, as_of: date, rents: dict, market: dic
     early = 0.0
     # Rescale for terms that cannot apply (e.g. no construction financing on a long-open building), at most x max_rescale.
     r.applicable = applicable_terms(p, cfg, as_of)
+    if r.I.known and r.I.value > 0:
+        r.applicable["opening_delay"] = True          # an unfinished building with a quiet site
     w_all = sum(w[k] for k in parts)
     w_app = sum(w[k] for k in parts if r.applicable[k])
     r.rescale = min(cfg["applicability"]["max_rescale"], w_all / w_app) if w_app else 1.0
@@ -547,7 +581,7 @@ def score_property(p: Property, cfg: dict, as_of: date, rents: dict, market: dic
     r.counters += counters
     # Downside extreme: each counter-signal cuts the early points.
     r.early = early * cfg["counter_signal"]["factor"] ** len(r.counters)
-    r.late, r.late_why = late_points(p, facts, cfg["late"], as_of)
+    r.late, r.late_why = late_points(p, facts, cfg["late"], as_of, cr.tax_lien_rows(p, extra.get("tax"), as_of))
     r.score = round(min(cfg["max_score"], r.early + r.late), 1)
     t = cfg["tiers"]
     r.tier = "hot" if r.score >= t["hot"] else "watch" if r.score >= t["watch"] else "low"
@@ -558,7 +592,9 @@ def score_property(p: Property, cfg: dict, as_of: date, rents: dict, market: dic
 def load_inputs(con):
     """Returns (rents, market, inspections, extra) where extra holds the other creative-signal inputs."""
     rents, market, inspections = {}, {}, {}
-    extra = {"ops": {}, "mkt_occ": {}, "concessions": {}, "licenses": {}, "inspection_coverage": set()}
+    cfg_term = 12.0                                  # lease term when a leasing page doesn't say (apartments)
+    extra = {"ops": {}, "mkt_occ": {}, "concessions": {}, "licenses": {}, "inspection_coverage": set(),
+             "tax": {}, "compliance": {}, "assessed": {}, "county_trend": {}, "listings": {}}
     if table_exists(con, "rent_observations"):
         cols = {r[0] for r in con.execute("SELECT column_name FROM information_schema.columns "
                                           "WHERE table_name = 'rent_observations'").fetchall()}
@@ -567,7 +603,9 @@ def load_inputs(con):
         for pid, d, rent, cm, tm in con.execute(
                 f"SELECT project_id, observed_at, asking_rent, {conc}, {term} FROM rent_observations").fetchall():
             if rent is not None:
-                rents.setdefault(str(pid), []).append((as_date(d), rent))
+                # EFFECTIVE rent: free months spread over the lease (concessions are part of R now)
+                eff = rent * (1 - min(1.0, (cm or 0.0) / (tm or cfg_term))) if cm else rent
+                rents.setdefault(str(pid), []).append((as_date(d), eff))
             if cm is not None:
                 extra["concessions"].setdefault(str(pid), []).append((as_date(d), cm, tm))
     if table_exists(con, "operating_metrics"):
@@ -599,8 +637,32 @@ def load_inputs(con):
             if k:
                 extra["licenses"].setdefault(k, []).append(d)
     if table_exists(con, "market_rents"):
-        for city, st, d, idx in con.execute("SELECT city, state, period, rent_index FROM market_rents").fetchall():
-            market.setdefault(((city or "").strip().lower(), (st or "").strip().upper()), []).append((as_date(d), idx))
+        rcols = {r[0] for r in con.execute("SELECT column_name FROM information_schema.columns "
+                                           "WHERE table_name = 'market_rents'").fetchall()}
+        typ = "property_type" if "property_type" in rcols else "NULL"
+        for city, st, d, idx, pt in con.execute(
+                f"SELECT city, state, period, rent_index, {typ} FROM market_rents").fetchall():
+            key = ((city or "").strip().lower(), (st or "").strip().upper())
+            if pt:                                   # a rent index for one property type (office, retail ...)
+                from .weekly import clean_type
+                key = key + (clean_type(pt),)
+            market.setdefault(key, []).append((as_date(d), idx))
+    # General public records matched by street address (scorer/creative.py INPUT_SCHEMA)
+    for table, slot in (("property_tax_status", "tax"), ("compliance_records", "compliance"),
+                        ("assessed_values", "assessed"), ("space_availability", "listings")):
+        if table_exists(con, table):
+            cur = con.execute(f"SELECT * FROM {table}")
+            names = [x[0] for x in cur.description]
+            for row in cur.fetchall():
+                d = dict(zip(names, row))
+                k = cr.address_key(d.get("address"), d.get("state"))
+                if k:
+                    extra[slot].setdefault(k, []).append(d)
+    if table_exists(con, "county_assessment_trend"):
+        for st, county, y, total in con.execute(
+                "SELECT state, county, tax_year, total_value FROM county_assessment_trend").fetchall():
+            if y is not None and total:
+                extra["county_trend"].setdefault(((st or "").upper(), (county or "").strip().lower()), {})[int(y)] = total
     if table_exists(con, "permit_inspections"):
         for num, d in con.execute("SELECT permit_number, inspection_date FROM permit_inspections").fetchall():
             inspections.setdefault(str(num), []).append(as_date(d))

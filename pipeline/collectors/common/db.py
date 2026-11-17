@@ -27,6 +27,8 @@ VALID_SOURCES = {
     "project_site", "news", "auction", "wsj_notice",
     # added by the AI agent (agent/): public pages the agent fetched while sourcing evidence
     "agent_web",
+    # general public records for the creative signals (collectors/public_records.py)
+    "tax_collector", "assessor", "code_enforcement", "listing",
 }
 VALID_DOC_CATEGORIES = {
     "foreclosure_notice", "receivership", "lender_lawsuit", "lis_pendens",
@@ -36,6 +38,8 @@ VALID_DOC_CATEGORIES = {
     "project_website", "news_article", "auction_listing", "ucc_sale_notice",
     # added by the AI agent (agent/): a public page fetched while compiling evidence
     "web_page",
+    # general public records for the creative signals (collectors/public_records.py)
+    "tax_status", "assessed_value", "code_violation", "space_availability",
 }
 VALID_LOAN_KINDS = {
     "construction", "permanent", "extension", "modification",

@@ -30,8 +30,9 @@ max_score: 100
 weights:
   loan_clock: 50          # L  construction loan still not paid off ("on the clock") - strongest
   opening_delay: 20       # O  opening date watch
-  creative: 30            # C  all creative signals combined (rent vs city, site inactivity, occupancy slide,
-                          #    income coverage, cost squeeze, concession creep, licensing / care quality)
+  creative: 30            # C  all creative signals combined. All general (any loan, any property type) and public:
+                          #    rent vs city, occupancy slide, income erosion, value cut, unpaid property tax,
+                          #    compliance trouble
 
 loan_clock:               # L: 0 before 30 months, rises in a straight line to 1 at 60 months
                           # Counts a construction loan, or any other mortgage that has needed an extension or
@@ -54,14 +55,16 @@ opening_delay:            # O: delays under 6 months are normal (Bloomfield), so
   per_slip: 0.05                # each time the stated opening date moved (only if already late)
   max_slip_bonus: 0.10
 
-rent_decline:             # R: (market rent change) - (property rent change), over the same window
+rent_decline:             # R: (market rent change) - (property EFFECTIVE rent change), over the same window
+                          #    effective rent = asking rent x (1 - free months / lease term): concessions count here
   full_gap: 0.15          # property doing 15 points worse than its city = full strength
   window_days: 365        # compare the latest rent with rents seen in the past year
   min_days_between: 90    # need two readings at least this far apart, or R is "unknown"
   min_observations: 2
   reliability: 0.90       # q: compared with the city, medians of several readings
 
-inspection_gap:           # I: days since the last city inspection on a permit with no certificate of occupancy
+inspection_gap:           # Site inactivity, part of the OPENING DELAY O: days since the last city inspection on a
+                          # permit with no certificate of occupancy. O = max(opening lateness, q x inactivity).
   start_days: 60
   full_days: 180
   reliability: 0.80       # q: slow inspectors / winter shutdowns can mimic a stall
@@ -76,27 +79,33 @@ creative:
     reliability: 0.90
     no_market_penalty: 0.70     # no market data: compare with its own peak only, trusted 70% as much
     counter_rise: 0.05          # occupancy UP 5+ points = counter-signal
+    listing_penalty: 0.70       # source 2: share of the building listed for lease (not true occupancy), trusted 70%
   income_erosion:               # V = (best-year NOI in lookback - NOI now) / best-year NOI / full_noi_drop
                                 # (no DSCR: debt service is not available)
     lookback_months: 48
     full_noi_drop: 0.50         # NOI down 50% from its best year = 1
     reliability: 1.00           # disclosed / audited numbers
-  cost_squeeze:                 # X = (expense growth - revenue growth since the best year) / full_gap
-    full_gap: 0.15
-    reliability: 0.60           # often explained by one-off costs
-  concession_creep:             # K = (free months per lease-YEAR now - 6+ months ago) / full_per_year
-    full_per_year: 1.0          # +1 free month per year of lease term = 1
-    default_term_months: 12     # when the lease term is unknown (typical apartment lease)
-    min_days_between: 180
-    reliability: 0.70
-  value_cut:                    # W = (value at securitization - most recent value) / value at securitization / full_drop
+  value_cut:                    # W, source 1 = (value at securitization - most recent value) / value at securitization / full_drop
     full_drop: 0.50             # value down 50% = 1  (public: CMBS Schedule AL valuation fields on SEC EDGAR)
     reliability: 1.00           # appraisal-based values reported to investors
-  licensing_quality:            # Lq from CMS stars / state licensing (Part A licensing_records)
-    star_strength: {1: 0.8, 2: 0.5, 3: 0.0, 4: 0.0, 5: 0.0}
+    assessor:                   # W, source 2 (any property, any loan): county assessor roll
+      lookback_years: 3         # compare this year's assessed value with its best of the 3 years before
+      full_gap: 0.25            # 25 points worse than the county's own change = 1
+      reliability: 0.60         # assessments lag the market and follow the county's method
+      no_county_penalty: 0.70   # no county-wide trend to compare with: trusted 70% as much
+  unpaid_tax:                   # T (any property, any loan): county treasurer / tax collector
+    first_missed: 0.50          # any missed installment = 0.5 ...
+    full_months: 12             # ... rising in a straight line to 1.0 at 12 months past due
+    reliability: 0.90           # an official county record; owners sometimes just pay late
+                                # (a tax LIEN, certificate sale or tax sale counts in the late score instead)
+  compliance_trouble:           # U (any property): city code / fire / health violations + state licensing / CMS stars
+    lookback_months: 24         # violations cited in the last 2 years
+    per_open_violation: 0.25    # each open violation adds 0.25 (4 open = 1)
+                                # an open unsafe / condemned / order-to-vacate violation = 1 on its own
+    star_strength: {1: 0.8, 2: 0.5, 3: 0.0, 4: 0.0, 5: 0.0}   # CMS star rating (senior housing)
     abuse_bonus: 0.2
     state_distress: 0.8
-    reliability: 0.60           # care quality hurts referrals, but it's a slow-moving signal
+    reliability: 0.60           # a slow-moving signal; some violations are minor
 
 # ---- ANTI-FLUKE: early signals must back each other up ------------------------
 # A signal "shows" when its strength is at least this much of its maximum.

@@ -65,3 +65,7 @@ inbox:
   default_doc_category:
     permit: building_permit
     state_license: license_action
+    tax_collector: tax_status          # general public records, loaded by collectors/public_records.py
+    assessor: assessed_value
+    code_enforcement: code_violation
+    listing: space_availability

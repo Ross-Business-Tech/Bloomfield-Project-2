@@ -1,5 +1,5 @@
 """Public-data inputs (Nov 2026): SEC Schedule AL operating/valuation fields, and public building permits,
-feed the occupancy slide, income erosion, cost squeeze, value cut, loan clock and opening delay.
+feed the occupancy slide, income erosion (rising costs included), value cut, loan clock and opening delay.
 Made-up data only."""
 from datetime import date
 
@@ -56,7 +56,7 @@ def load(con, tmp_path, xml=XML):
         edgar.load_file(con, run, "fake-ex102", path, "FAKE 2024-C1", CFG)
 
 
-def test_schedule_al_fields_feed_q_v_x_and_w(con, tmp_path):
+def test_schedule_al_fields_feed_q_v_and_w(con, tmp_path):
     from scorer.schema import create_scorer_tables
     create_scorer_tables(con)
     load(con, tmp_path)
@@ -69,7 +69,6 @@ def test_schedule_al_fields_feed_q_v_x_and_w(con, tmp_path):
     by = {s.code: s for s in r.creative}
     assert by["Q"].value == 1.0                     # 95.4% -> 32.8%
     assert by["V"].value == 1.0                     # NOI $5.0M -> -$3.9M a year
-    assert by["X"].value == 1.0                     # expenses up, revenue down
     assert by["W"].value == 1.0 and "77.0M" in by["W"].why     # value $77.0M -> $18.1M
     assert r.tier in ("hot", "watch") and r.score >= 50
 

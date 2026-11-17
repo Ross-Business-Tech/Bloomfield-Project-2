@@ -31,22 +31,27 @@ Score = min(100, Early + Late)
 | Term | What it measures | Strength 0 → 1 | Weight | Data from |
 |---|---|---|---|---|
 | **L** loan clock | A **construction loan**, or any **short-term loan that has needed an extension/modification** (bridge, value-add), still not paid off by a permanent loan or release | 0 before 30 months → 1 at 60 months. +0.1 per extension (max +0.2); +0.25 if a construction loan's building opened with the loan still outstanding | 50 | County recorder (`recorded_loans` / Reader) **and public SEC CMBS loan filings**: a loan past its maturity date and still outstanding = 1.0; the servicer's "modified" flag counts as an extension |
-| **O** opening delay | Months past the latest reasonable opening date, page still "coming soon" | 0 under 6 months (normal) → 1 at 18 months. +0.1 missed student move-in, +0.05 per date slip (max +0.1) | 20 | Project websites (Part B `projects`); **if none, a public new-construction building permit with no certificate of occupancy**: months overdue = months since issue − 24 (typical build) |
+| **O** opening delay | Months past the latest reasonable opening date, page still "coming soon" — **or site inactivity** (an unfinished building whose city inspections have stopped); the larger counts | Lateness: 0 under 6 months (normal) → 1 at 18 months, +0.1 missed student move-in, +0.05 per date slip (max +0.1). Site inactivity: 60 → 180 days since the last city inspection on a permit with no certificate of occupancy, × q 0.8 | 20 | Project websites (Part B `projects`); **if none, a public new-construction building permit with no certificate of occupancy**: months overdue = months since issue − 24 (typical build). Inspections: city permit / inspection records (`collectors/permits.py`) |
 | **C** creative | All creative signals below, combined | 1 − Π(1 − q·s) | 30 | see below |
 | **C(k)** corroboration | **Nov 2026: removed.** A single signal counts in full (1, 2 or 3+ signals → 1.0), because much of the data isn't public | 1.0 | × | — |
-| **Late** | Court/legal filing or lender/trustee default notice: 6. Contractor liens: 2 each, max 4. Older than 180 days counts half; filings dated after the scoring date are ignored | — | max 10 | Part B `filing_fields` |
+| **Late** | Court/legal filing, lender/trustee default notice, or a county **tax lien / tax certificate sale / tax sale**: 6. Contractor liens: 2 each, max 4. Older than 180 days counts half; filings dated after the scoring date are ignored | — | max 10 | Part B `filing_fields` |
 
-### Creative signals: each one is measurable (code: `scorer/creative.py`)
-| Signal | s = 0 → 1 | Reliability q | Data from |
+### Creative signals: general and public (code: `scorer/creative.py`)
+**Nov 2026 rework.** Every creative signal works for **any loan** (CMBS, Fannie Mae / Freddie Mac, bank, bridge,
+construction) and **any property type**, and every input is **public**. Each signal has a short list of public
+sources; the best one the property has is used. If none has data, the signal says **"don't have"** and scores 0
+(a missing record is never treated as healthy *or* distressed).
+
+| Signal | s = 0 → 1 | Reliability q | Public sources, best first |
 |---|---|---|---|
-| **R** rent vs. city | (city rent change − property rent change) ÷ 15 pts | 0.9 | B `rent_observations` + A `market_rents` |
-| **I** site inactivity | 60 → 180 days since a city inspection on an open permit | 0.8 | A `permit_inspections` (filled by `collectors/permits.py` from city building departments; NETR does not list them) |
-| **Q** occupancy slide | (peak occupancy in the last 36 months − occupancy now − market drop) ÷ 15 pts | 0.9 (×0.7 with no market data) | `operating_metrics` (public disclosures; SEC CMBS reports feed it one occupancy row per loan per report period) + `market_occupancy` |
-| **V** income erosion | (best-year NOI in the last 48 months − NOI now) ÷ best-year NOI ÷ 50%. **No DSCR** (debt service is not available) | 1.0 | `operating_metrics` (public disclosures) |
-| **X** cost squeeze | (expense growth − revenue growth since the best year) ÷ 15 pts | 0.6 | `operating_metrics` |
-| **K** concession creep | (free months **per year of lease term** now − 6+ months earlier) ÷ 1 month. Unknown term = 12 months | 0.7 | B `rent_observations` (free rent + lease term) |
-| **Lq** licensing / care | CMS 1-star 0.8, 2-star 0.5; abuse flag +0.2; state license distress 0.8 | 0.6 | A `licensing_records` |
-| **W** value cut | (value at securitization − most recent value) ÷ value at securitization ÷ 50% | 1.0 | Public SEC CMBS loan filings (Schedule AL valuation fields) |
+| **R** rent vs. city | (city rent change − property **effective** rent change) ÷ 15 pts. Effective rent = asking rent × (1 − free months ÷ lease term), so free-rent concessions count here (was *concession creep*) | 0.9 | Leasing pages / listing sites for the property (any link: project, loan, filing) vs. market rents **for its type** (HUD / Census / Zillow city index serves housing; a typed `market_rents` row serves office, retail, etc.) |
+| **Q** occupancy slide | (peak occupancy in the last 36 months − occupancy now − market drop) ÷ 15 pts | 0.9 (×0.7 with no market data) | 1. CMBS SEC filings, Fannie Mae DUS / Freddie Mac K-deal loan data (`operating_metrics`) · 2. share of the building **listed for lease** on listing sites (`space_availability`), ×0.7 |
+| **V** income erosion | (best-year NOI in the last 48 months − NOI now) ÷ best-year NOI ÷ 50%. NOI = revenue − expenses when not given, so **rising costs count here** (was *cost squeeze*). **No DSCR** | 1.0 | CMBS SEC filings, Fannie Mae / Freddie Mac loan data |
+| **W** value cut | 1. (appraisal at securitization − latest) ÷ 50% · 2. (county's assessed-value change − property's) ÷ 25 pts, over the last 3 years; a won tax appeal shows up here | 1.0 · 0.6 (×0.7 with no county trend) | 1. CMBS SEC filings · 2. **county assessor roll** (`assessed_values` + `county_assessment_trend`) — every property has one |
+| **T** unpaid property tax (**new**) | Any missed installment 0.5, rising in a straight line to 1.0 at 12 months past due. Paid current = 0. A recorded tax lien / certificate sale / tax sale counts in **Late** instead | 0.9 | **County treasurer / tax collector** (`property_tax_status`) and delinquent-tax notices — every property, every county |
+| **U** compliance trouble (**new**) | 0.25 per open code / fire / health violation (last 24 months); an open unsafe / condemned / order-to-vacate case = 1.0. CMS 1-star 0.8, 2-star 0.5, state license distress 0.8, abuse +0.2 (was *licensing*) | 0.6 | City code enforcement, fire / health inspections (`compliance_records`), state licensing + CMS (`licensing_records`) |
+
+*Site inactivity* moved into **O** (it only applies to unfinished buildings).
 
 Related creative signals (e.g. falling occupancy and falling income) count as at most **2** anti-fluke confirmations, so one story can't confirm itself.
 
@@ -87,10 +92,12 @@ Sale comps are data, not formulas: value = Σ units × comparable $ per unit.
 Each early signal is checked against the others. A single extreme number (one bad rent reading, a loan the recorder mis-labeled) keeps only half its points until a second, independent signal agrees. Inside each signal, more guards apply:
 - **Rent** compares medians of early and late readings (not single points), needs 2+ readings 90+ days apart, and is measured **against the city**. A citywide dip doesn't count.
 - **Loan clock** resets to 0 the moment a permanent loan or release is recorded.
-- **Inspection gap** resets to 0 once a certificate of occupancy exists.
+- **Site inactivity** (part of O) resets to 0 once a certificate of occupancy exists.
 - **Opening delay** ignores the normal 3–6 month slip.
 
 ## Worked example (made up: Kestrel Hall, Ann Arbor)
+*Written for an earlier version of the equation (site inactivity was its own term then; it is part of O now). The current numbers for this example are checked in `tests/test_equation.py::test_ann_arbor_example_is_hot`.*
+
 | | Input | Strength | Points |
 |---|---|---|---|
 | L | Construction loan Mar 2022, 1 extension, 56 months | 0.86 + 0.10 = 0.96 | 48.2 |
@@ -102,8 +109,8 @@ Each early signal is checked against the others. A single extreme number (one ba
 | | **Score** | | **83.7 → Hot, Actionable** |
 
 ## How it connects to the rest of the pipeline
-1. **Part A** (collectors) loads `recorded_loans` → **L**, and `market_rents` + `permit_inspections` → **R**, **I**.
-2. **Part B** (scout + reader) fills `projects` → **O**, `rent_observations` → **R**, and `filing_fields` (permits, liens, court filings) → **I** and **Late**.
+1. **Part A** (collectors) loads `recorded_loans` → **L**, `market_rents` → **R**, `permit_inspections` → **O** (site inactivity), and, via `collectors/public_records.py`, county tax bills → **T**, assessor rolls → **W**, code violations → **U**, listing availability → **Q**.
+2. **Part B** (scout + reader) fills `projects` → **O**, `rent_observations` → **R**, and `filing_fields` (permits, liens, court filings, tax-delinquency notices) → **O**, **T** and **Late**.
 3. **Part C** (matcher) writes `property_links`, so `scorer.group` puts each property's records together before scoring.
 4. **Part D** runs `python -m scorer.equation` and writes `equation_scores` (one row per property, with an `explanation` of every term).
 
@@ -112,7 +119,9 @@ Each early signal is checked against the others. A single extreme number (one ba
 - `market_rents(city, state, period, rent_index, source)`: Part A, e.g. HUD Fair Market Rents, Census ACS or Zillow ZORI.
 - `permit_inspections(permit_number, state, city, inspection_date, inspection_type, result, file_id)`: Part A `permits.py`.
 
-Until those are filled, R and I count as "no data". They can't confirm anything, so properties lean on L and O.
+- General public records (`scorer/creative.py` INPUT_SCHEMA): `property_tax_status`, `assessed_values`, `county_assessment_trend`, `compliance_records`, `space_availability`. Drop a county's or city's CSV export in `data/inbox/<tax_collector|assessor|code_enforcement|listing>/<ST>/<county>/` and `collectors/public_records.py` loads it.
+
+Until those are filled, the signals count as "don't have". They can't confirm anything, so properties lean on L and O.
 
 ## Run it
 ```
@@ -160,13 +169,12 @@ Every input now has a public, regularly published source:
 |---|---|
 | L loan clock | County recorder (via NETR); SEC EDGAR CMBS Schedule AL: maturity date + balance, `modifiedIndicator` |
 | O opening delay | Project / leasing websites and Wayback Machine; city building permits + certificates of occupancy |
-| Q occupancy slide | SEC Schedule AL: occupancy at securitization vs. most recent (plus each monthly report) |
-| V income erosion | SEC Schedule AL: NOI at securitization vs. most recent operating statement |
-| X cost squeeze | SEC Schedule AL: revenue and operating expenses at securitization vs. most recent |
-| W value cut | SEC Schedule AL: value at securitization vs. most recent value |
-| R rent vs. city | Leasing pages / Wayback (property) vs. Zillow ZORI city index (`collectors/market_rents.py`) |
-| K concession creep | Leasing pages / Wayback (free rent and lease term) |
-| I site inactivity | City open-data permit and inspection records (`collectors/permits.py`) |
-| Lq licensing / care | CMS Care Compare and state licensing data |
+| Q occupancy slide | SEC Schedule AL / Fannie Mae DUS / Freddie Mac K-deal occupancy; else the share of the building listed for lease (listing sites) |
+| V income erosion | SEC Schedule AL / Fannie / Freddie: NOI (or revenue − operating expenses) at securitization vs. most recent |
+| W value cut | SEC Schedule AL appraisal; else the county assessor roll vs. the county's own change |
+| R rent vs. city | Leasing pages / listings / Wayback (asking rent and free rent) vs. Zillow ZORI / HUD / Census or a typed market rent |
+| T unpaid property tax | County treasurer / tax collector bills and delinquent-tax lists |
+| U compliance trouble | City code enforcement, fire / health inspections, state licensing, CMS Care Compare |
+| O site inactivity | City open-data permit and inspection records (`collectors/permits.py`) |
 
 DSCR is still not scored (team decision), even though SEC filings report it.

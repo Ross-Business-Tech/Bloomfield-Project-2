@@ -243,10 +243,16 @@ def deal_angles(r: eq.Result, p, ptype) -> list[str]:
     if by.get("V") and by["V"].effective >= 0.5:
         a.append("Income has fallen sharply from its best year: buy the loan/bonds at a discount, or offer "
                  "rescue capital to bridge the operating shortfall.")
-    if by.get("Q") and by["Q"].effective >= 0.25 or by.get("X") and by["X"].effective >= 0.25:
+    if by.get("Q") and by["Q"].effective >= 0.25:
         a.append("Operating fix (occupancy / staffing costs): pair the capital with an operator or affiliation plan.")
-    if by.get("Lq") and by["Lq"].effective >= 0.25:
-        a.append("Care-quality / licensing issue: price in operator replacement and regulatory cure.")
+    if by.get("T") and by["T"].effective >= 0.25:
+        a.append("Property taxes are unpaid: the owner is short of cash. Offer capital that pays the county "
+                 "before a tax lien or tax sale.")
+    if by.get("U") and by["U"].effective >= 0.25:
+        a.append("Code / licensing trouble: price in the cure (repairs, operator replacement) and regulatory risk.")
+    if by.get("W") and by["W"].effective >= 0.25:
+        a.append("Value has been cut: the loan is likely under water, so a discounted note purchase or "
+                 "rescue capital fits.")
     if "default_notice" in kinds:
         a.append("Lender or bond trustee has issued a default notice: approach holders about selling the debt.")
     if r.counters:

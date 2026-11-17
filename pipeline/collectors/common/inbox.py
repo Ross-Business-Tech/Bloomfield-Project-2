@@ -9,7 +9,8 @@ downloads the documents by hand and drops them in:
     data/inbox/<source>/                              (national sources)
 
   <source> is one of: county_court, recorder, public_notice, permit, state_license,
-           cms, sec_edgar, ffiec, manual_upload
+           cms, sec_edgar, ffiec, manual_upload,
+           tax_collector, assessor, code_enforcement, listing   (CSV / JSON exports; see collectors/public_records.py)
 
 Optional extras:
   * Put a category folder one level deeper (e.g. .../washtenaw/mechanics_lien/lien1.pdf)

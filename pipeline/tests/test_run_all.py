@@ -26,7 +26,7 @@ class Spy:
 def test_runs_everything_in_the_agreed_order(con, monkeypatch):
     spy = Spy(monkeypatch, con)
     results = run_all.run_all(con)
-    assert [c[0] for c in spy.calls] == ["inbox", "edgar", "ffiec", "county", "permits", "state", "market_rents", "cms_ops"]
+    assert [c[0] for c in spy.calls] == ["inbox", "edgar", "ffiec", "county", "permits", "public_records", "state", "market_rents", "cms_ops"]
     assert [r["collector"] for r in results] == run_all.ORDER
     assert {r["collector"]: r["status"] for r in results if r["collector"] in run_all.NOT_BUILT} == \
         {"recorded_loans": "not built", "liens": "not built"}         # permits is built (permits.py)
@@ -36,7 +36,7 @@ def test_one_collector_crashing_does_not_stop_the_others(con, monkeypatch):
     spy = Spy(monkeypatch, con, boom={"edgar"})
     results = {r["collector"]: r for r in run_all.run_all(con)}
     assert results["edgar"]["status"] == "failed" and "exploded" in results["edgar"]["messages"][0]
-    assert [c[0] for c in spy.calls][-6:] == ["ffiec", "county", "permits", "state", "market_rents", "cms_ops"]   # everything after still ran
+    assert [c[0] for c in spy.calls][-7:] == ["ffiec", "county", "permits", "public_records", "state", "market_rents", "cms_ops"]   # everything after still ran
     assert results["ffiec"]["status"] == "ok"
 
 
@@ -52,7 +52,8 @@ def test_only_and_county_filters(con, monkeypatch):
 def test_state_flag_skips_national_collectors(con, monkeypatch):
     spy = Spy(monkeypatch, con)
     run_all.run_all(con, state_code="MI")
-    assert spy.calls == [("inbox", "MI", None), ("county", "MI", None), ("permits", "MI", None)]
+    assert spy.calls == [("inbox", "MI", None), ("county", "MI", None), ("permits", "MI", None),
+                         ("public_records", "MI", None)]
     spy.calls.clear()
     run_all.run_all(con, only=["edgar"], state_code="MI")                      # unless named explicitly
     assert [c[0] for c in spy.calls] == ["edgar"]

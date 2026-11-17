@@ -35,6 +35,8 @@ KIND_BY_CATEGORY = {
     "auction_listing": "auction", "ucc_sale_notice": "uccsale",
     # added by the AI agent (agent/): a public page fetched while compiling evidence
     "web_page": "webpage",
+    # general public records for the creative signals (collectors/public_records.py)
+    "tax_status": "tax", "assessed_value": "assessed", "code_violation": "code", "space_availability": "listing",
 }
 
 EXT_TO_TYPE = {
